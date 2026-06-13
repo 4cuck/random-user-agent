@@ -45,7 +45,7 @@ export const firefox = (maxMajor?: number, majorDelta: number = 2): [major: numb
 
   const major = fromRange(variants.major.min, variants.major.max)
 
-  return [major, `${major}.0${Math.random() < 0.3 ? 'esr' : ''}`]
+  return [major, `${major}.0`]
 }
 
 /** @link https://en.wikipedia.org/wiki/Opera_version_history */

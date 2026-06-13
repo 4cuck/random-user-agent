@@ -24,7 +24,7 @@ describe('generate', () => {
         expect(result.userAgent).toMatch(generalUserAgentRe)
         expect(result.userAgent).contains('X11')
         expect(result.userAgent).contains('Linux')
-        expect(result.userAgent).contains('AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93')
+        expect(result.userAgent).contains('AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.0.0')
       })
     })
 
@@ -47,7 +47,7 @@ describe('generate', () => {
         expect(result.userAgent).toMatch(generalUserAgentRe)
         expect(result.userAgent).contains('Macintosh')
         expect(result.userAgent).contains('Intel Mac OS X')
-        expect(result.userAgent).contains('AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430')
+        expect(result.userAgent).contains('AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.0.0')
       })
     })
 

@@ -8,6 +8,12 @@ import {
   safari as safariVersion,
 } from './browser-versions'
 
+/**
+ * Reduces a browser version to the frozen `major.0.0.0` form that modern Chromium-based browsers always use in
+ * their User-Agent string (the real, full version is still exposed via Client Hints).
+ */
+const reduceVersion = (version: string): string => `${version.split('.')[0]}.0.0.0`
+
 const generators: {
   chrome: {
     linux: (deps: Record<'chromeVersion', string>) => string
@@ -41,7 +47,7 @@ const generators: {
         /Mozilla\/5\.0 \((|||||||Wayland like )X11; (||(U|U|U|U|U|Ubuntu|Ubuntu|Ubuntu|Debian|Debian|Fedora|FreeBSD); )Linux (x86_64|x86_64|x86_64|x86_64|i686)\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/__CHROME_VERSION__ Safari\/537\.36/
       )
         .gen()
-        .replace(/__CHROME_VERSION__/g, chromeVersion)
+        .replace(/__CHROME_VERSION__/g, reduceVersion(chromeVersion))
     },
 
     mac: ({ chromeVersion }) => {
@@ -49,7 +55,7 @@ const generators: {
         /Mozilla\/5\.0 \(Macintosh; Intel Mac OS X 1(([01](|[._](0|1|2|3|4|5|6|7|10|11|12|13|14)))|([2-4](|\.[0-6]))|(4(|\.[0-6])))\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/__CHROME_VERSION__ Safari\/537\.36/
       )
         .gen()
-        .replace(/__CHROME_VERSION__/g, chromeVersion)
+        .replace(/__CHROME_VERSION__/g, reduceVersion(chromeVersion))
     },
 
     windows: ({ chromeVersion }) => {
@@ -57,7 +63,7 @@ const generators: {
         /Mozilla\/5\.0 \(Windows NT ((6\.(1|1|1|2|3))|10\.0|10\.0|10\.0|10\.0|10\.0|10\.0); (Win64|Win64|Win64|WOW64); x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/__CHROME_VERSION__ Safari\/537\.36/
       )
         .gen()
-        .replace(/__CHROME_VERSION__/g, chromeVersion)
+        .replace(/__CHROME_VERSION__/g, reduceVersion(chromeVersion))
     },
 
     android: ({ chromeVersion, mobileVendor }) => {
@@ -66,7 +72,7 @@ const generators: {
       )
         .gen()
         .replace(/__MOBILE_VENDOR__/g, mobileVendor)
-        .replace(/__CHROME_VERSION__/g, chromeVersion)
+        .replace(/__CHROME_VERSION__/g, reduceVersion(chromeVersion))
     },
   },
 
@@ -129,22 +135,22 @@ const generators: {
   /** @link https://www.whatismybrowser.com/guides/the-latest-user-agent/opera */
   opera: {
     windows: ({ chromeVersion, operaVersion }) => {
-      return `${generators.chrome.windows({ chromeVersion })} OPR/${operaVersion}`
+      return `${generators.chrome.windows({ chromeVersion })} OPR/${reduceVersion(operaVersion)}`
     },
 
     mac: ({ chromeVersion, operaVersion }) => {
-      return `${generators.chrome.mac({ chromeVersion })} OPR/${operaVersion}`
+      return `${generators.chrome.mac({ chromeVersion })} OPR/${reduceVersion(operaVersion)}`
     },
   },
 
   /** @link https://www.whatismybrowser.com/guides/the-latest-user-agent/edge */
   edge: {
     windows: ({ chromeVersion, edgeVersion }) => {
-      return `${generators.chrome.windows({ chromeVersion })} Edg/${edgeVersion}`
+      return `${generators.chrome.windows({ chromeVersion })} Edg/${reduceVersion(edgeVersion)}`
     },
 
     mac: ({ chromeVersion, edgeVersion }) => {
-      return `${generators.chrome.mac({ chromeVersion })} Edg/${edgeVersion}`
+      return `${generators.chrome.mac({ chromeVersion })} Edg/${reduceVersion(edgeVersion)}`
     },
   },
 }
