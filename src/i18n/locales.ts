@@ -51,6 +51,38 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
     js_protection: 'Protect against detection by JavaScript',
     custom_useragent: 'Use one of (in the randomized order) custom User-Agent instead generated',
     custom_useragent_list: 'Custom User-Agents (set a specific User-Agents, one per line)',
+    client_hints_full_version: 'Client Hints full version',
+    client_hints_full_version_hint:
+      'Override the full browser version reported via Client Hints (e.g. 149.0.7827.115). Applied only when its ' +
+      'major matches the active user agent; leave empty to derive it from the user agent',
+    client_hints_platform_version: 'Client Hints platform version',
+    client_hints_platform_version_hint:
+      'Override the platform version reported via Sec-CH-UA-Platform-Version (e.g. 19.0.0). Leave empty to use the ' +
+      'default for the selected OS',
+    client_hints_platform: 'Client Hints platform',
+    client_hints_platform_hint:
+      'Override the platform reported via Sec-CH-UA-Platform and navigator.userAgentData.platform (e.g. Windows, ' +
+      'macOS, Linux, Android, Chrome OS, iOS). Leave empty to derive it from the user agent',
+    client_hints_form_factors: 'Client Hints form factors',
+    client_hints_form_factors_hint:
+      'Override the form factors reported via Sec-CH-UA-Form-Factors and the Client Hints JS API (comma-separated, ' +
+      'e.g. Desktop or Mobile, Tablet). Leave empty to keep the browser default',
+    client_hints_model: 'Client Hints model',
+    client_hints_model_hint:
+      'Override the device model reported via Sec-CH-UA-Model and the Client Hints JS API (e.g. Pixel 7). Leave ' +
+      'empty for none (desktop default)',
+    client_hints_architecture: 'Client Hints CPU architecture',
+    client_hints_architecture_hint:
+      'Override the CPU architecture reported via Sec-CH-UA-Arch and the Client Hints JS API (e.g. x86, arm). ' +
+      'Leave empty for the default (empty on mobile, x86 on desktop)',
+    client_hints_bitness: 'Client Hints CPU bitness',
+    client_hints_bitness_hint:
+      'Override the CPU bitness reported via Sec-CH-UA-Bitness and the Client Hints JS API (e.g. 64, 32). Leave ' +
+      'empty for the default (empty on mobile, 64 on desktop)',
+    client_hints_opera_mobile_version: 'Opera Mobile version',
+    client_hints_opera_mobile_version_hint:
+      'The OperaMobile brand version reported by the "Opera on Android" generator (e.g. 99.2.5094.88935). Leave ' +
+      'empty to use the built-in default',
     generator_settings: 'Generator settings',
     generator_settings_hint: 'Here you can change the agent switching behavior',
     blacklist_settings: 'Blacklist settings',
@@ -82,8 +114,13 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
     firefox_android: 'Firefox on Android',
     opera_win: 'Opera on Windows',
     opera_mac: 'Opera on Mac',
+    opera_android: 'Opera on Android',
     safari_iphone: 'Safari on iPhone',
     safari_mac: 'Safari on Mac',
+    brave_win: 'Brave on Windows',
+    brave_mac: 'Brave on Mac',
+    brave_linux: 'Brave on Linux',
+    brave_android: 'Brave on Android',
     why_we_need_permissions: 'To function properly, the extension requires the following permissions',
     read_and_modify_data: 'Read and modify all your data on the websites you visit',
     read_and_modify_data_reason:

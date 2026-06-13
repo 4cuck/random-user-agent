@@ -8,6 +8,7 @@ type UserAgentState = {
     | 'opera' // engine: "blink"
     | 'safari' // engine: "webkit"
     | 'edge' // engine: "blink"
+    | 'brave' // engine: "blink"
     | 'unknown'
   os: 'windows' | 'linux' | 'macOS' | 'iOS' | 'android' | 'unknown'
   version: {

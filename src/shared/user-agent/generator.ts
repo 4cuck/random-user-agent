@@ -1,4 +1,5 @@
 import RandExp from 'randexp'
+import { defaultOperaMobileVersion } from '~/shared/client-hint'
 import {
   chrome as chromeVersion,
   edge as edgeVersion,
@@ -180,8 +181,13 @@ export default function generate(
     | 'safari_mac'
     | 'opera_win'
     | 'opera_mac'
+    | 'opera_android'
     | 'edge_win'
-    | 'edge_mac',
+    | 'edge_mac'
+    | 'brave_win'
+    | 'brave_mac'
+    | 'brave_linux'
+    | 'brave_android',
   opt?: Partial<{
     // the version of the browser, e.g. '90.0.4430.93'. if specified, the version will be used instead of the
     // generated one (in this case, features like 'maxMajor' and 'majorDelta' will be ignored)
@@ -361,6 +367,26 @@ export default function generate(
       }
     }
 
+    case 'opera_android': {
+      const [chromeMajor, chromeFull] = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)
+      const [operaMajor, operaFull] = opt?.version
+        ? [extractMajor(opt.version), opt.version]
+        : operaVersion(opt?.maxMajor, opt?.majorDelta)
+      // Opera Mobile reports the device via Client Hints, so the user agent uses the frozen "Android 10; K" token
+      // and a reduced Chromium version; the OPR token carries the (default) OperaMobile major version
+      const operaMobileMajor = extractMajor(defaultOperaMobileVersion)
+
+      return {
+        userAgent:
+          `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+          `Chrome/${chromeMajor}.0.0.0 Mobile Safari/537.36 OPR/${operaMobileMajor}.0.0.0`,
+        version: {
+          browser: { major: operaMajor, full: operaFull },
+          underHood: { type: 'chrome', major: chromeMajor, full: chromeFull },
+        },
+      }
+    }
+
     case 'edge_win': {
       const [chromeMajor, chromeFull] = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)
       const [edgeMajor, edgeFull] = opt?.version
@@ -388,6 +414,51 @@ export default function generate(
           browser: { major: edgeMajor, full: edgeFull },
           underHood: { type: 'chrome', major: chromeMajor, full: chromeFull },
         },
+      }
+    }
+
+    // Brave uses a plain Chrome user agent string and reports a reduced (major.0.0.0) version everywhere, so we
+    // reuse the Chrome templates with a reduced version. The "Brave" brand is added later in the Client Hints.
+    case 'brave_win': {
+      const major = opt?.version ? extractMajor(opt.version) : chromeVersion(opt?.maxMajor, opt?.majorDelta)[0]
+      const full = `${major}.0.0.0`
+
+      return {
+        userAgent: generators.chrome.windows({ chromeVersion: full }),
+        version: { browser: { major, full } },
+      }
+    }
+
+    case 'brave_mac': {
+      const major = opt?.version ? extractMajor(opt.version) : chromeVersion(opt?.maxMajor, opt?.majorDelta)[0]
+      const full = `${major}.0.0.0`
+
+      return {
+        userAgent: generators.chrome.mac({ chromeVersion: full }),
+        version: { browser: { major, full } },
+      }
+    }
+
+    case 'brave_linux': {
+      const major = opt?.version ? extractMajor(opt.version) : chromeVersion(opt?.maxMajor, opt?.majorDelta)[0]
+      const full = `${major}.0.0.0`
+
+      return {
+        userAgent: generators.chrome.linux({ chromeVersion: full }),
+        version: { browser: { major, full } },
+      }
+    }
+
+    case 'brave_android': {
+      const major = opt?.version ? extractMajor(opt.version) : chromeVersion(opt?.maxMajor, opt?.majorDelta)[0]
+      const full = `${major}.0.0.0`
+
+      return {
+        userAgent: generators.chrome.android({
+          chromeVersion: full,
+          mobileVendor: opt?.mobileVendor || mobileVendors[Math.floor(Math.random() * mobileVendors.length)],
+        }),
+        version: { browser: { major, full } },
       }
     }
 

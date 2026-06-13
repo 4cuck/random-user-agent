@@ -1,0 +1,12 @@
+<!-- Brave browser icon (simplified, Brave-orange shield) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <linearGradient id="brave_g" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ff7139"/>
+    <stop offset="1" stop-color="#fb542b"/>
+  </linearGradient>
+  <path fill="url(#brave_g)"
+        d="M256 472c-6 0-12-2-17-6-28-21-83-69-106-136-7-20-11-41-12-63-1-13 7-25 19-30l101-38c9-3 18-3 27
+           0l101 38c12 5 20 17 19 30-1 22-5 43-12 63-23 67-78 115-106 136-5 4-11 6-17 6z"/>
+  <path fill="#fff"
+        d="M256 150l40 22-16 18 30 56-54 40-54-40 30-56-16-18z"/>
+</svg>

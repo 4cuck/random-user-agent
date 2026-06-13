@@ -31,7 +31,10 @@ describe('generator-type-helpers', () => {
       'chrome_win',
     ])
     expect(
-      fromSets(['chrome', 'edge', 'firefox', 'opera', 'safari'], ['android', 'linux', 'macos', 'windows', 'ios'])
+      fromSets(
+        ['brave', 'chrome', 'edge', 'firefox', 'opera', 'safari'],
+        ['android', 'linux', 'macos', 'windows', 'ios']
+      )
     ).toEqual<TResult>([...allTypes])
 
     expect(fromSets(['chrome', 'edge'], 'any')).toEqual<TResult>([
@@ -42,10 +45,12 @@ describe('generator-type-helpers', () => {
       'edge_mac',
       'edge_win',
     ])
-    expect(fromSets(['chrome', 'edge', 'firefox', 'opera', 'safari'], 'any')).toEqual<TResult>([...allTypes])
+    expect(fromSets(['brave', 'chrome', 'edge', 'firefox', 'opera', 'safari'], 'any')).toEqual<TResult>([...allTypes])
 
-    expect(fromSets('any', ['linux'])).toEqual<TResult>(['chrome_linux', 'firefox_linux'])
+    expect(fromSets('any', ['linux'])).toEqual<TResult>(['brave_linux', 'chrome_linux', 'firefox_linux'])
     expect(fromSets('any', ['linux', 'macos'])).toEqual<TResult>([
+      'brave_linux',
+      'brave_mac',
       'chrome_linux',
       'chrome_mac',
       'edge_mac',

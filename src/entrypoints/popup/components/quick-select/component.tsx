@@ -4,6 +4,7 @@ import { i18n } from '~/i18n'
 import Icon, { type IconProps } from '~/shared/components/icon'
 import {
   AndroidIcon,
+  BraveIcon,
   ChromeIcon,
   EdgeIcon,
   FirefoxIcon,
@@ -155,6 +156,7 @@ export default function QuickSelect({
             { type: 'safari', title: 'Safari', icon: SafariIcon },
             { type: 'edge', title: 'Edge', icon: EdgeIcon },
             { type: 'opera', title: 'Opera', icon: OperaIcon },
+            { type: 'brave', title: 'Brave', icon: BraveIcon },
           ])}
         </ul>
       </section>

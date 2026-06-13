@@ -38,6 +38,14 @@ export default function General(): React.JSX.Element {
   const [jsProtectionEnabled, setJsProtectionEnabled, jsProtectionEnabledId] = [...useState<boolean>(), useId()]
   const [customUAEnabled, setCustomUAEnabled, customUAEnabledId] = [...useState<boolean>(), useId()]
   const [customUAText, setCustomUAText] = useState<string>()
+  const [chFullVersion, setChFullVersion, chFullVersionId] = [...useState<string>(), useId()]
+  const [chPlatformVersion, setChPlatformVersion, chPlatformVersionId] = [...useState<string>(), useId()]
+  const [chPlatform, setChPlatform, chPlatformId] = [...useState<string>(), useId()]
+  const [chFormFactors, setChFormFactors, chFormFactorsId] = [...useState<string>(), useId()]
+  const [chModel, setChModel, chModelId] = [...useState<string>(), useId()]
+  const [chArchitecture, setChArchitecture, chArchitectureId] = [...useState<string>(), useId()]
+  const [chBitness, setChBitness, chBitnessId] = [...useState<string>(), useId()]
+  const [chOperaMobileVersion, setChOperaMobileVersion, chOperaMobileVersionId] = [...useState<string>(), useId()]
   const [remoteUAListEnabled, setRemoteUAListEnabled, remoteUAListEnabledId] = [...useState<boolean>(), useId()]
   const [remoteUAListUrl, setRemoteUAListUrl] = useState<string>()
   const [remoteUAUpdIntervalSec, setRemoteUAUpdIntervalSec] = useState<number>()
@@ -61,6 +69,14 @@ export default function General(): React.JSX.Element {
       setRemoteUAListEnabled(settings.remoteUseragentList.enabled)
       setRemoteUAListUrl(settings.remoteUseragentList.uri)
       setRemoteUAUpdIntervalSec(Math.round(settings.remoteUseragentList.updateIntervalMillis / 1000))
+      setChFullVersion(settings.clientHints.fullVersion)
+      setChPlatformVersion(settings.clientHints.platformVersion)
+      setChPlatform(settings.clientHints.platform)
+      setChFormFactors(settings.clientHints.formFactors)
+      setChModel(settings.clientHints.model)
+      setChArchitecture(settings.clientHints.architecture)
+      setChBitness(settings.clientHints.bitness)
+      setChOperaMobileVersion(settings.clientHints.operaMobileVersion)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -177,6 +193,150 @@ export default function General(): React.JSX.Element {
                 setCustomUAEnabled(v)
                 await saveSettings({ customUseragent: { enabled: v } }, delayFor.switch)
               }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chFullVersionId}>{i18n('client_hints_full_version')}</label>
+            <Grid.Hint>{i18n('client_hints_full_version_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chFullVersionId}
+              value={chFullVersion}
+              maxLength={32}
+              placeholder="149.0.7827.115"
+              onChange={async (v) => {
+                setChFullVersion(v)
+                await saveSettings({ clientHints: { fullVersion: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chPlatformVersionId}>{i18n('client_hints_platform_version')}</label>
+            <Grid.Hint>{i18n('client_hints_platform_version_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chPlatformVersionId}
+              value={chPlatformVersion}
+              maxLength={32}
+              placeholder="19.0.0"
+              onChange={async (v) => {
+                setChPlatformVersion(v)
+                await saveSettings({ clientHints: { platformVersion: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chPlatformId}>{i18n('client_hints_platform')}</label>
+            <Grid.Hint>{i18n('client_hints_platform_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chPlatformId}
+              value={chPlatform}
+              maxLength={32}
+              placeholder="Windows"
+              onChange={async (v) => {
+                setChPlatform(v)
+                await saveSettings({ clientHints: { platform: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chFormFactorsId}>{i18n('client_hints_form_factors')}</label>
+            <Grid.Hint>{i18n('client_hints_form_factors_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chFormFactorsId}
+              value={chFormFactors}
+              maxLength={64}
+              placeholder="Desktop"
+              onChange={async (v) => {
+                setChFormFactors(v)
+                await saveSettings({ clientHints: { formFactors: v } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chModelId}>{i18n('client_hints_model')}</label>
+            <Grid.Hint>{i18n('client_hints_model_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chModelId}
+              value={chModel}
+              maxLength={64}
+              placeholder="Pixel 7"
+              onChange={async (v) => {
+                setChModel(v)
+                await saveSettings({ clientHints: { model: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chArchitectureId}>{i18n('client_hints_architecture')}</label>
+            <Grid.Hint>{i18n('client_hints_architecture_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chArchitectureId}
+              value={chArchitecture}
+              maxLength={16}
+              placeholder="x86"
+              onChange={async (v) => {
+                setChArchitecture(v)
+                await saveSettings({ clientHints: { architecture: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chBitnessId}>{i18n('client_hints_bitness')}</label>
+            <Grid.Hint>{i18n('client_hints_bitness_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chBitnessId}
+              value={chBitness}
+              maxLength={8}
+              placeholder="64"
+              onChange={async (v) => {
+                setChBitness(v)
+                await saveSettings({ clientHints: { bitness: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chOperaMobileVersionId}>{i18n('client_hints_opera_mobile_version')}</label>
+            <Grid.Hint>{i18n('client_hints_opera_mobile_version_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chOperaMobileVersionId}
+              value={chOperaMobileVersion}
+              maxLength={32}
+              placeholder="99.2.5094.88935"
+              onChange={async (v) => {
+                setChOperaMobileVersion(v)
+                await saveSettings({ clientHints: { operaMobileVersion: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
             />
           </Grid.Column>
         </Grid.Row>

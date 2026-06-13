@@ -1,1 +1,8 @@
-export { browserBrands, platform, isMobile } from './client-hints'
+export {
+  browserBrands,
+  platform,
+  isMobile,
+  platformVersion,
+  operaMobileBrands,
+  defaultOperaMobileVersion,
+} from './client-hints'

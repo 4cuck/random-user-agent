@@ -113,6 +113,41 @@ export type Localization<T extends string = string> = {
   custom_useragent: T
   /** Custom User-Agents */
   custom_useragent_list: T
+  /**
+   * The following Client Hints keys are optional so locales that haven't been translated yet fall back to English.
+   */
+  /** Client Hints full version */
+  client_hints_full_version?: T
+  /** Client Hints full version hint */
+  client_hints_full_version_hint?: T
+  /** Client Hints platform version */
+  client_hints_platform_version?: T
+  /** Client Hints platform version hint */
+  client_hints_platform_version_hint?: T
+  /** Client Hints platform */
+  client_hints_platform?: T
+  /** Client Hints platform hint */
+  client_hints_platform_hint?: T
+  /** Client Hints form factors */
+  client_hints_form_factors?: T
+  /** Client Hints form factors hint */
+  client_hints_form_factors_hint?: T
+  /** Client Hints model */
+  client_hints_model?: T
+  /** Client Hints model hint */
+  client_hints_model_hint?: T
+  /** Client Hints CPU architecture */
+  client_hints_architecture?: T
+  /** Client Hints CPU architecture hint */
+  client_hints_architecture_hint?: T
+  /** Client Hints CPU bitness */
+  client_hints_bitness?: T
+  /** Client Hints CPU bitness hint */
+  client_hints_bitness_hint?: T
+  /** Client Hints Opera Mobile version */
+  client_hints_opera_mobile_version?: T
+  /** Client Hints Opera Mobile version hint */
+  client_hints_opera_mobile_version_hint?: T
   /** Generator settings */
   generator_settings: T
   /** Here you can change the agent switching behavior */
@@ -171,10 +206,20 @@ export type Localization<T extends string = string> = {
   opera_win: T
   /** Opera on Mac */
   opera_mac: T
+  /** Opera on Android */
+  opera_android?: T
   /** Safari on iPhone */
   safari_iphone: T
   /** Safari on Mac */
   safari_mac: T
+  /** Brave on Windows */
+  brave_win?: T
+  /** Brave on Mac */
+  brave_mac?: T
+  /** Brave on Linux */
+  brave_linux?: T
+  /** Brave on Android */
+  brave_android?: T
   /** To function properly, the extension requires ... */
   why_we_need_permissions: T
   /** Read and modify all your data ... */

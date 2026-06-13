@@ -30,6 +30,16 @@ export default class {
     jsProtection: {
       enabled: true,
     },
+    clientHints: {
+      fullVersion: '',
+      platformVersion: '',
+      platform: '',
+      formFactors: '',
+      model: '',
+      architecture: '',
+      bitness: '',
+      operaMobileVersion: '',
+    },
     generator: {
       types: ['chrome_win', 'chrome_linux', 'chrome_mac'],
       syncOsWithHost: false,

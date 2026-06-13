@@ -50,6 +50,8 @@ export const setExtensionTitle = async (title: ReadonlyUserAgentState | string, 
             return '🧭 Safari'
           case 'edge':
             return '🛸 Edge'
+          case 'brave':
+            return '🦁 Brave'
           default:
             return '👻 Browser'
         }

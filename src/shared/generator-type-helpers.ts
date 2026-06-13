@@ -20,11 +20,16 @@ export const allTypes: ReadonlyArray<SettingsGeneratorType> = Object.freeze(
     'safari_iphone',
     'safari_mac',
     'edge_win',
-    'edge_mac'
+    'edge_mac',
+    'brave_win',
+    'brave_mac',
+    'brave_linux',
+    'brave_android',
+    'opera_android'
   ).sort()
 )
 
-export type BrowserType = 'chrome' | 'firefox' | 'safari' | 'edge' | 'opera'
+export type BrowserType = 'chrome' | 'firefox' | 'safari' | 'edge' | 'opera' | 'brave'
 export type OSType = 'linux' | 'windows' | 'macos' | 'ios' | 'android'
 
 /** Convert an array of generator types to a tuple of browser and OS sets. The sets are sorted and deduplicated. */
@@ -57,6 +62,8 @@ export const toSets = (
           return ['opera', 'windows']
         case 'opera_mac':
           return ['opera', 'macos']
+        case 'opera_android':
+          return ['opera', 'android']
         case 'safari_iphone':
           return ['safari', 'ios']
         case 'safari_mac':
@@ -65,6 +72,14 @@ export const toSets = (
           return ['edge', 'windows']
         case 'edge_mac':
           return ['edge', 'macos']
+        case 'brave_win':
+          return ['brave', 'windows']
+        case 'brave_mac':
+          return ['brave', 'macos']
+        case 'brave_linux':
+          return ['brave', 'linux']
+        case 'brave_android':
+          return ['brave', 'android']
         default:
           return [undefined, undefined]
       }
@@ -90,7 +105,7 @@ export const fromSets = (
   const types = new Set<SettingsGeneratorType>()
 
   if (browsers === 'any') {
-    browsers = ['chrome', 'firefox', 'opera', 'safari', 'edge']
+    browsers = ['chrome', 'firefox', 'opera', 'safari', 'edge', 'brave']
   }
 
   for (const browser of browsers) {
@@ -111,6 +126,7 @@ export const fromSets = (
         case 'opera':
           types.add('opera_win')
           types.add('opera_mac')
+          types.add('opera_android')
           break
         case 'safari':
           types.add('safari_iphone')
@@ -119,6 +135,12 @@ export const fromSets = (
         case 'edge':
           types.add('edge_win')
           types.add('edge_mac')
+          break
+        case 'brave':
+          types.add('brave_win')
+          types.add('brave_mac')
+          types.add('brave_linux')
+          types.add('brave_android')
           break
       }
     } else {
@@ -149,10 +171,20 @@ export const fromSets = (
               return 'opera_win'
             case browser === 'opera' && os === 'macos':
               return 'opera_mac'
+            case browser === 'opera' && os === 'android':
+              return 'opera_android'
             case browser === 'edge' && os === 'windows':
               return 'edge_win'
             case browser === 'edge' && os === 'macos':
               return 'edge_mac'
+            case browser === 'brave' && os === 'windows':
+              return 'brave_win'
+            case browser === 'brave' && os === 'macos':
+              return 'brave_mac'
+            case browser === 'brave' && os === 'linux':
+              return 'brave_linux'
+            case browser === 'brave' && os === 'android':
+              return 'brave_android'
           }
         })()
 

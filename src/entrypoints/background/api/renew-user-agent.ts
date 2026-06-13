@@ -157,10 +157,20 @@ const generatedUserAgent = (
           return 'opera_win'
         case pickBrowser === 'opera' && pickOS === 'macos':
           return 'opera_mac'
+        case pickBrowser === 'opera' && pickOS === 'android':
+          return 'opera_android'
         case pickBrowser === 'edge' && pickOS === 'windows':
           return 'edge_win'
         case pickBrowser === 'edge' && pickOS === 'macos':
           return 'edge_mac'
+        case pickBrowser === 'brave' && pickOS === 'windows':
+          return 'brave_win'
+        case pickBrowser === 'brave' && pickOS === 'macos':
+          return 'brave_mac'
+        case pickBrowser === 'brave' && pickOS === 'linux':
+          return 'brave_linux'
+        case pickBrowser === 'brave' && pickOS === 'android':
+          return 'brave_android'
       }
 
       return 'chrome_win' // fallback
@@ -177,6 +187,9 @@ const generatedUserAgent = (
           return { maxMajor: latest?.safari }
         case 'edge':
           return { maxMajor: latest?.edge, underHoodMaxMajor: latest?.chrome }
+        case 'brave':
+          // Brave is Chromium-based and shares Chrome's versioning
+          return { maxMajor: latest?.chrome }
       }
     })()
   )
@@ -195,6 +208,8 @@ const generatedUserAgent = (
           return 'safari'
         case 'edge':
           return 'edge'
+        case 'brave':
+          return 'brave'
         default:
           return 'unknown'
       }

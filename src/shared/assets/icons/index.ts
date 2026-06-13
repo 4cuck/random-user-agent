@@ -1,3 +1,4 @@
+import brave_svg from './browsers/brave.svg'
 import chrome_svg from './browsers/chrome.svg'
 import edge_svg from './browsers/edge.svg'
 import firefox_svg from './browsers/firefox.svg'
@@ -13,6 +14,7 @@ import linux_svg from './os/linux.svg'
 import macos_svg from './os/macos.svg'
 import windows_svg from './os/windows.svg'
 
+export const BraveIcon: string = brave_svg
 export const ChromeIcon: string = chrome_svg
 export const EdgeIcon: string = edge_svg
 export const FirefoxIcon: string = firefox_svg

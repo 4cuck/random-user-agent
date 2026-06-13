@@ -8,13 +8,16 @@ const fromRange = (min: number, max: number): number => {
 /** @link https://chromereleases.googleblog.com/search/label/Desktop%20Update */
 export const chrome = (maxMajor?: number, majorDelta: number = 2): [major: number, full: string] => {
   const variants = {
-    major: { min: 136, max: 138 }, // 👈 periodically we should update those values
-    patch: { min: 6834, max: 7204 }, // 👈 same here
-    build: { min: 85, max: 101 }, // 👈 and here
+    major: { min: 148, max: 151 }, // 👈 periodically we should update those values
+    patch: { min: 7700, max: 8200 }, // 👈 same here
+    build: { min: 30, max: 230 }, // 👈 and here
   }
 
-  if (maxMajor) {
-    variants.major.max = Math.max(maxMajor, 0)
+  // only let the fetched (remote) versions list raise the range when it is actually newer than our known-current
+  // values - a stale/behind remote list (e.g. MDN browser-compat-data lagging) must never make the generator
+  // produce versions older than the hard-coded range below
+  if (maxMajor && maxMajor > variants.major.max) {
+    variants.major.max = maxMajor
     variants.major.min = Math.max(maxMajor - majorDelta, 0)
   }
 
@@ -29,11 +32,14 @@ export const chrome = (maxMajor?: number, majorDelta: number = 2): [major: numbe
 /** @link https://www.mozilla.org/en-US/firefox/releases/ */
 export const firefox = (maxMajor?: number, majorDelta: number = 2): [major: number, full: string] => {
   const variants = {
-    major: { min: 138, max: 140 }, // 👈 periodically we should update those values
+    major: { min: 149, max: 151 }, // 👈 periodically we should update those values
   }
 
-  if (maxMajor) {
-    variants.major.max = Math.max(maxMajor, 0)
+  // only let the fetched (remote) versions list raise the range when it is actually newer than our known-current
+  // values - a stale/behind remote list (e.g. MDN browser-compat-data lagging) must never make the generator
+  // produce versions older than the hard-coded range below
+  if (maxMajor && maxMajor > variants.major.max) {
+    variants.major.max = maxMajor
     variants.major.min = Math.max(maxMajor - majorDelta, 0)
   }
 
@@ -45,13 +51,16 @@ export const firefox = (maxMajor?: number, majorDelta: number = 2): [major: numb
 /** @link https://en.wikipedia.org/wiki/Opera_version_history */
 export const opera = (maxMajor?: number, majorDelta: number = 2): [major: number, full: string] => {
   const variants = {
-    major: { min: 116, max: 119 }, // 👈 periodically we should update those values
-    patch: { min: 5067, max: 5322 }, // 👈 same here
-    build: { min: 16, max: 198 }, // 👈 and here
+    major: { min: 131, max: 134 }, // 👈 periodically we should update those values
+    patch: { min: 5800, max: 5990 }, // 👈 same here
+    build: { min: 16, max: 120 }, // 👈 and here
   }
 
-  if (maxMajor) {
-    variants.major.max = Math.max(maxMajor, 0)
+  // only let the fetched (remote) versions list raise the range when it is actually newer than our known-current
+  // values - a stale/behind remote list (e.g. MDN browser-compat-data lagging) must never make the generator
+  // produce versions older than the hard-coded range below
+  if (maxMajor && maxMajor > variants.major.max) {
+    variants.major.max = maxMajor
     variants.major.min = Math.max(maxMajor - majorDelta, 0)
   }
 
@@ -70,8 +79,11 @@ export const safari = (maxMajor?: number, majorDelta: number = 2): [major: numbe
     patch: { min: 1, max: 15 }, // 👈 and here
   }
 
-  if (maxMajor) {
-    variants.major.max = Math.max(maxMajor, 0)
+  // only let the fetched (remote) versions list raise the range when it is actually newer than our known-current
+  // values - a stale/behind remote list (e.g. MDN browser-compat-data lagging) must never make the generator
+  // produce versions older than the hard-coded range below
+  if (maxMajor && maxMajor > variants.major.max) {
+    variants.major.max = maxMajor
     variants.major.min = Math.max(maxMajor - majorDelta, 0)
   }
 
@@ -86,13 +98,16 @@ export const safari = (maxMajor?: number, majorDelta: number = 2): [major: numbe
 /** @link https://docs.microsoft.com/en-us/deployedge/microsoft-edge-relnote-stable-channel */
 export const edge = (maxMajor?: number, majorDelta: number = 2): [major: number, full: string] => {
   const variants = {
-    major: { min: 136, max: 138 }, // 👈 periodically we should update those values
-    patch: { min: 2903, max: 3351 }, // 👈 same here
-    build: { min: 99, max: 112 }, // 👈 and here
+    major: { min: 148, max: 151 }, // 👈 periodically we should update those values
+    patch: { min: 3900, max: 4350 }, // 👈 same here
+    build: { min: 30, max: 130 }, // 👈 and here
   }
 
-  if (maxMajor) {
-    variants.major.max = Math.max(maxMajor, 0)
+  // only let the fetched (remote) versions list raise the range when it is actually newer than our known-current
+  // values - a stale/behind remote list (e.g. MDN browser-compat-data lagging) must never make the generator
+  // produce versions older than the hard-coded range below
+  if (maxMajor && maxMajor > variants.major.max) {
+    variants.major.max = maxMajor
     variants.major.min = Math.max(maxMajor - majorDelta, 0)
   }
 

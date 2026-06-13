@@ -48,7 +48,13 @@ const createLocalesPlugin: PluginOption = {
       const result: Record<string, { message: string }> = {}
 
       for (const key in data) {
-        result[key] = { message: data[key as keyof typeof data] }
+        const message = data[key as keyof typeof data]
+
+        // some keys (e.g. newly added, not-yet-translated ones) are optional - skip the missing ones, the
+        // browser falls back to the default locale (English) for them at runtime
+        if (typeof message === 'string') {
+          result[key] = { message }
+        }
       }
 
       const dirPath = join(distChromeDir, '_locales', name)

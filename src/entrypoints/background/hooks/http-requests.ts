@@ -1,6 +1,13 @@
-import { browserBrands, isMobile, platform } from '~/shared/client-hint'
+import {
+  browserBrands,
+  defaultOperaMobileVersion,
+  isMobile,
+  operaMobileBrands,
+  platform,
+  platformVersion,
+} from '~/shared/client-hint'
 import { canonizeDomain, validateDomainOrIP } from '~/shared'
-import type { ContentScriptPayload, ReadonlyUserAgentState } from '~/shared/types'
+import type { ContentScriptPayload, ReadonlySettingsState, ReadonlyUserAgentState } from '~/shared/types'
 
 // copy-paste of chrome.declarativeNetRequest.RuleActionType type (FireFox v124 does not have it)
 // https://developer.chrome.com/docs/extensions/reference/api/declarativeNetRequest#type-RuleActionType
@@ -37,6 +44,10 @@ enum HeaderNames {
   CLIENT_HINT_BRAND_FULL = 'Sec-CH-UA-Full-Version-List', // https://mzl.la/3C3x5TT
   CLIENT_HINT_PLATFORM = 'Sec-CH-UA-Platform', // https://mzl.la/3EbrbTj
   CLIENT_HINT_MOBILE = 'Sec-CH-UA-Mobile', // https://mzl.la/3SYTA3f
+  CLIENT_HINT_FORM_FACTORS = 'Sec-CH-UA-Form-Factors', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-CH-UA-Form-Factors
+  CLIENT_HINT_MODEL = 'Sec-CH-UA-Model', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-CH-UA-Model
+  CLIENT_HINT_ARCH = 'Sec-CH-UA-Arch', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-CH-UA-Arch
+  CLIENT_HINT_BITNESS = 'Sec-CH-UA-Bitness', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-CH-UA-Bitness
   SERVER_TIMING = 'server-timing', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server-Timing
 }
 
@@ -61,7 +72,8 @@ const alwaysExcludedFor: ReadonlyArray<string> = ['challenges.cloudflare.com'].m
 export async function setRequestHeaders(
   ua: ReadonlyUserAgentState,
   filter?: { applyToDomains?: ReadonlyArray<string>; exceptDomains?: ReadonlyArray<string> },
-  sendPayload: boolean = false
+  sendPayload: boolean = false,
+  clientHints?: ReadonlySettingsState['clientHints']
 ): Promise<Array<chrome.declarativeNetRequest.Rule>> {
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     resourceTypes: Object.values(chrome?.declarativeNetRequest?.ResourceType || {}),
@@ -114,14 +126,51 @@ export async function setRequestHeaders(
     condition.excludedRequestDomains = [...alwaysExcludedFor]
   }
 
+  // user-configurable Client Hints overrides (managed in the extension settings). Empty values fall back to the
+  // data derived from the active user agent.
+  const fullVersionOverride = (clientHints?.fullVersion ?? '').trim()
+  // Opera Mobile is special: it reports a four-brand list with an extra "OperaMobile" brand, and its
+  // `uaFullVersion` / `Sec-CH-UA-Full-Version` carry the (configurable) OperaMobile version
+  const isOperaMobile = ua.browser === 'opera' && ua.os === 'android'
+  const operaMobileFull = (clientHints?.operaMobileVersion ?? '').trim() || defaultOperaMobileVersion
+  const operaMobileMajor = parseInt(operaMobileFull, 10) || 0
+  const effectiveFull = ((): string => {
+    if (isOperaMobile) {
+      return operaMobileFull
+    }
+
+    // the full-version override is applied only when its major matches the active user agent major version,
+    // otherwise it is ignored to keep `Sec-CH-UA` (major) and `Sec-CH-UA-Full-Version-List` (full) consistent
+    if (fullVersionOverride && parseInt(fullVersionOverride, 10) === ua.version.browser.major) {
+      return fullVersionOverride
+    }
+
+    return ua.version.browser.full
+  })()
+  const platformOverride = (clientHints?.platform ?? '').trim()
+  const platformVersionOverride = (clientHints?.platformVersion ?? '').trim()
+  const formFactors = (clientHints?.formFactors ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const model = (clientHints?.model ?? '').trim()
+  // architecture & bitness are empty strings on mobile (matching how real mobile Chromium reports them), otherwise
+  // they use the user override or a sensible desktop default
+  const architecture = (clientHints?.architecture ?? '').trim() || (isMobile(ua.os) ? '' : 'x86')
+  const bitness = (clientHints?.bitness ?? '').trim() || (isMobile(ua.os) ? '' : '64')
+
   const brandsWithMajor = (() => {
     switch (ua.browser) {
       case 'chrome':
         return browserBrands('chrome', ua.version.browser.major)
       case 'opera':
-        return browserBrands('opera', ua.version.browser.major, ua.version.underHood?.major || 0)
+        return isOperaMobile
+          ? operaMobileBrands(ua.version.browser.major, ua.version.underHood?.major || 0, operaMobileMajor)
+          : browserBrands('opera', ua.version.browser.major, ua.version.underHood?.major || 0)
       case 'edge':
         return browserBrands('edge', ua.version.browser.major, ua.version.underHood?.major || 0)
+      case 'brave':
+        return browserBrands('brave', ua.version.browser.major)
     }
 
     return []
@@ -130,18 +179,23 @@ export async function setRequestHeaders(
   const brandsWithFull = (() => {
     switch (ua.browser) {
       case 'chrome':
-        return browserBrands('chrome', ua.version.browser.full)
+        return browserBrands('chrome', effectiveFull)
       case 'opera':
-        return browserBrands('opera', ua.version.browser.full, ua.version.underHood?.full || '')
+        return isOperaMobile
+          ? operaMobileBrands(ua.version.browser.full, ua.version.underHood?.full || '', operaMobileFull)
+          : browserBrands('opera', effectiveFull, ua.version.underHood?.full || '')
       case 'edge':
-        return browserBrands('edge', ua.version.browser.full, ua.version.underHood?.full || '')
+        return browserBrands('edge', effectiveFull, ua.version.underHood?.full || '')
+      case 'brave':
+        return browserBrands('brave', effectiveFull)
     }
 
     return []
   })()
 
-  const setPlatform = platform(ua.os)
+  const setPlatform = platformOverride || platform(ua.os)
   const setIsMobile = isMobile(ua.os)
+  const setPlatformVersion = platformVersionOverride || platformVersion(setPlatform)
 
   const payload: ContentScriptPayload = {
     current: ua,
@@ -150,7 +204,13 @@ export async function setRequestHeaders(
       full: brandsWithFull,
     },
     platform: setPlatform,
+    platformVersion: setPlatformVersion,
     isMobile: setIsMobile,
+    fullVersion: effectiveFull,
+    formFactors,
+    model,
+    architecture,
+    bitness,
   }
 
   const rules: Array<chrome.declarativeNetRequest.Rule> = [
@@ -197,8 +257,59 @@ export async function setRequestHeaders(
             header: HeaderNames.CLIENT_HINT_MOBILE,
             value: setIsMobile ? '?1' : '?0',
           },
-          { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_FULL_VERSION },
-          { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_PLATFORM_VERSION },
+          // Sec-CH-UA-Full-Version (deprecated, but still requested by some sites) is emitted for Chromium-based
+          // user agents so it stays consistent with the full-version list instead of leaking the real browser value.
+          // Brave is the exception - it strips this header for privacy, so we do the same when spoofing Brave.
+          brandsWithMajor.length && ua.browser !== 'brave'
+            ? {
+                operation: HeaderOperation.SET,
+                header: HeaderNames.CLIENT_HINT_FULL_VERSION,
+                value: `"${effectiveFull}"`,
+              }
+            : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_FULL_VERSION },
+          brandsWithMajor.length && setPlatformVersion
+            ? {
+                operation: HeaderOperation.SET,
+                header: HeaderNames.CLIENT_HINT_PLATFORM_VERSION,
+                value: `"${setPlatformVersion}"`,
+              }
+            : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_PLATFORM_VERSION },
+          // Sec-CH-UA-Form-Factors and Sec-CH-UA-Model are opt-in (only set when the user configured them, so the
+          // real browser values otherwise pass through untouched)
+          ...(brandsWithMajor.length && formFactors.length
+            ? [
+                {
+                  operation: HeaderOperation.SET,
+                  header: HeaderNames.CLIENT_HINT_FORM_FACTORS,
+                  value: formFactors.map((f) => `"${f}"`).join(', '),
+                },
+              ]
+            : []),
+          ...(brandsWithMajor.length && model
+            ? [
+                {
+                  operation: HeaderOperation.SET,
+                  header: HeaderNames.CLIENT_HINT_MODEL,
+                  value: `"${model}"`,
+                },
+              ]
+            : []),
+          // Sec-CH-UA-Arch / Sec-CH-UA-Bitness are set for Chromium user agents; on mobile they are empty strings,
+          // exactly like a real mobile Chromium browser reports them
+          ...(brandsWithMajor.length
+            ? [
+                {
+                  operation: HeaderOperation.SET,
+                  header: HeaderNames.CLIENT_HINT_ARCH,
+                  value: `"${architecture}"`,
+                },
+                {
+                  operation: HeaderOperation.SET,
+                  header: HeaderNames.CLIENT_HINT_BITNESS,
+                  value: `"${bitness}"`,
+                },
+              ]
+            : []),
         ],
       },
       condition,

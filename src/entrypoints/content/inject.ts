@@ -46,7 +46,7 @@ import type { DeepWriteable } from '~/types'
   /** Overloads the object property with the new value. */
   const overload = <T>(
     t: T,
-    prop: T extends Navigator ? keyof T | 'oscpu' : keyof T,
+    prop: T extends Navigator ? keyof T | 'oscpu' | 'brave' : keyof T,
     value: unknown,
     options: { force?: boolean; configurable?: boolean; writable?: boolean } = {
       force: false,
@@ -123,6 +123,7 @@ import type { DeepWriteable } from '~/types'
             case 'chrome':
             case 'opera':
             case 'edge': // blink engine
+            case 'brave': // blink engine
               // mask the browser (and under the hood) versions, keeping only the major version (e.g., 92.0.4515.107 -> 92.0.0.0)
               const masked = payload.current.userAgent.replaceAll(
                 payload.current.version.browser.full,
@@ -213,6 +214,7 @@ import type { DeepWriteable } from '~/types'
         case 'chrome':
         case 'opera':
         case 'edge': // blink engine
+        case 'brave': // blink engine
           overload(n, 'vendor', 'Google Inc.')
           break
 
@@ -226,6 +228,17 @@ import type { DeepWriteable } from '~/types'
 
         default:
           overload(n, 'vendor', undefined)
+      }
+
+      // Brave exposes a `navigator.brave` object with an async `isBrave()` method - replicate it when spoofing
+      // Brave so that sites relying on it can still detect "Brave"
+      if (payload.current.browser === 'brave') {
+        overload(
+          n,
+          'brave',
+          Object.freeze({ isBrave: (): Promise<boolean> => Promise.resolve(true) }),
+          { force: true, configurable: true }
+        )
       }
 
       /**
@@ -308,27 +321,21 @@ import type { DeepWriteable } from '~/types'
                         brands: payload.brands.major.map(({ brand, version }) => ({ brand, version })),
                         fullVersionList: payload.brands.full.map(({ brand, version }) => ({ brand, version })),
                         mobile: payload.isMobile,
-                        model: '',
+                        model: payload.model || '',
                         platform: payload.platform,
-                        platformVersion: ((): string => {
-                          switch (payload.platform) {
-                            case 'Windows':
-                              return '10.0.0'
-                            case 'Linux':
-                              return '6.5.0'
-                            case 'Android':
-                              return '13.0.0'
-                            case 'macOS':
-                            case 'iOS':
-                              return '14.2.1'
-                          }
+                        platformVersion: payload.platformVersion,
+                        architecture: payload.architecture,
+                        bitness: payload.bitness,
+                      }
 
-                          return ''
-                        })(),
+                      // form factors are opt-in: only override them when configured in the settings, otherwise the
+                      // real browser value (from `...values`) passes through
+                      if (payload.formFactors.length) {
+                        ;(data as unknown as { formFactors: ReadonlyArray<string> }).formFactors = payload.formFactors
                       }
 
                       if ('uaFullVersion' in values) {
-                        data.uaFullVersion = payload.current.version.browser.full
+                        data.uaFullVersion = payload.fullVersion || payload.current.version.browser.full
                       }
 
                       resolve(data)

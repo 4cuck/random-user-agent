@@ -28,7 +28,8 @@ export async function reloadRequestHeaders(
       settings.blacklist.mode === 'blacklist'
         ? { exceptDomains: settings.blacklist.domains }
         : { applyToDomains: settings.blacklist.domains },
-      settings.jsProtection.enabled
+      settings.jsProtection.enabled,
+      settings.clientHints
     )
   }
 
