@@ -152,6 +152,10 @@ export type Localization<T extends string = string> = {
   generator_settings: T
   /** Here you can change the agent switching behavior */
   generator_settings_hint: T
+  /** Generate a random User-Agent */
+  enable_generator?: T
+  /** Enable generator hint */
+  enable_generator_hint?: T
   /** Blacklist settings */
   blacklist_settings: T
   /** Blacklist mode - ... */

@@ -41,6 +41,7 @@ export default class {
       operaMobileVersion: '',
     },
     generator: {
+      enabled: true,
       types: ['chrome_win', 'chrome_linux', 'chrome_mac'],
       syncOsWithHost: false,
     },

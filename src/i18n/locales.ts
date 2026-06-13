@@ -85,6 +85,10 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
       'empty to use the built-in default',
     generator_settings: 'Generator settings',
     generator_settings_hint: 'Here you can change the agent switching behavior',
+    enable_generator: 'Generate a random User-Agent',
+    enable_generator_hint:
+      'When disabled, the extension never generates a random User-Agent - it always uses your custom (or remote ' +
+      'list) User-Agent instead',
     blacklist_settings: 'Blacklist settings',
     blacklist_settings_hint:
       'Blacklist mode - switching enabled everywhere, except the defined domains & rules. Whitelist - on the ' +

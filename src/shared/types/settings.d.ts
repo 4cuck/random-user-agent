@@ -88,6 +88,9 @@ type SettingsState = {
 
   // Generator settings
   generator: {
+    // Is the User-Agent generator enabled? When disabled, the extension only uses the custom / remote user
+    // agents (whatever the user configured) and never auto-generates one.
+    enabled: boolean
     // Generator types
     types: Array<SettingsGeneratorType>
     // Sync the host OS with the selected (if true, the `os` from the combinations will be ignored)

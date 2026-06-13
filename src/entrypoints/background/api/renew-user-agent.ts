@@ -24,7 +24,8 @@ export default async function renewUserAgent(
   Readonly<{
     source: 'custom_agents_list' | 'remote_list' | 'generator'
     previous?: ReadonlyUserAgentState
-    new: ReadonlyUserAgentState
+    // may be undefined when the generator is disabled and no custom/remote user agent is configured
+    new?: ReadonlyUserAgentState
   }>
 > {
   const previous = await current.get()
@@ -69,6 +70,12 @@ export default async function renewUserAgent(
     await current.update(picked)
 
     return Object.freeze({ source, previous, new: picked })
+  }
+
+  // when the generator is disabled, never auto-generate a user agent - keep whatever the user configured (custom
+  // or remote) or the previously active one, so the extension always uses the user's chosen user agent
+  if (!settings.generator.enabled) {
+    return Object.freeze({ source: 'generator', previous, new: previous })
   }
 
   const [latest] = await latestVersions.get()

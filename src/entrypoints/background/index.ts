@@ -57,7 +57,7 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
     currentUserAgent: async () => (await currentUserAgent.get())?.userAgent,
     renewUserAgent: async () => {
       const gen = await renewUserAgent(settings, currentUserAgent, remoteUserAgentList, hostOS, latestBrowserVersions)
-      return gen.new.userAgent
+      return gen.new?.userAgent ?? ''
     },
     settings: async () => settings.get(),
     updateSettings: async (part) => (await settings.update(part)) && settings.get(),

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useId, useState } from 'react'
 import { i18n } from '~/i18n'
 import { send } from '~/shared/messaging'
 import { type SettingsGeneratorType } from '~/shared/types'
@@ -14,6 +14,7 @@ export default function Generator(): React.JSX.Element {
   const saveSettings = useSaveSettings()
   const renewUserAgent = useRenewUserAgent()
   const [current, setCurrent] = useState<Array<SettingsGeneratorType>>([])
+  const [enabled, setEnabled, enabledId] = [...useState<boolean>(), useId()]
 
   /** Refresh settings */
   const refresh = useCallback(() => {
@@ -22,6 +23,7 @@ export default function Generator(): React.JSX.Element {
         throw settings
       }
 
+      setEnabled(settings.generator.enabled)
       setCurrent([...settings.generator.types])
     })
   }, [setCurrent])
@@ -62,6 +64,24 @@ export default function Generator(): React.JSX.Element {
       <p>{i18n('generator_settings_hint')}:</p>
 
       <Grid>
+        <Grid.Row>
+          <Grid.Column>
+            <label htmlFor={enabledId}>{i18n('enable_generator')}</label>
+            <Grid.Hint>{i18n('enable_generator_hint')}:</Grid.Hint>
+          </Grid.Column>
+          <Grid.Column>
+            <Switch
+              id={enabledId}
+              checked={enabled}
+              onChange={(isChecked) => {
+                setEnabled(isChecked)
+                saveSettings({ generator: { enabled: isChecked } }, 200)
+                  .then(() => renewUserAgent().catch(throwIfErr))
+                  .catch(throwIfErr)
+              }}
+            />
+          </Grid.Column>
+        </Grid.Row>
         <Grid.Row>
           <Grid.Column>
             <ul className={styles.list}>
