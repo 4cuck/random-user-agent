@@ -26,7 +26,7 @@ export default function Generator(): React.JSX.Element {
       setEnabled(settings.generator.enabled)
       setCurrent([...settings.generator.types])
     })
-  }, [setCurrent])
+  }, [setCurrent, setEnabled])
 
   /** Handle checkbox change */
   const handleCheckboxChange = useCallback(
