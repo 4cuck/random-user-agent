@@ -42,6 +42,7 @@ export default class {
     },
     generator: {
       enabled: true,
+      autoUpdateVersions: false,
       types: ['chrome_win', 'chrome_linux', 'chrome_mac'],
       syncOsWithHost: false,
     },

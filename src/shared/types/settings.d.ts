@@ -91,6 +91,10 @@ type SettingsState = {
     // Is the User-Agent generator enabled? When disabled, the extension only uses the custom / remote user
     // agents (whatever the user configured) and never auto-generates one.
     enabled: boolean
+    // Periodically fetch the latest browser versions from the internet (Google / Mozilla / MDN) to keep the
+    // generated user agents current. Disabled by default, since it makes periodic third-party network requests;
+    // when off, the generator relies on its built-in (known-current) version list.
+    autoUpdateVersions: boolean
     // Generator types
     types: Array<SettingsGeneratorType>
     // Sync the host OS with the selected (if true, the `os` from the combinations will be ignored)

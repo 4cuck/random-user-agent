@@ -145,8 +145,17 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
       const reloaded = await reloadRequestHeaders(await settings.get(), await currentUserAgent.get())
       debug('the request header rules have been ' + (reloaded ? 'set' : 'unset'), reloaded)
 
-      // 🚀 update the latest browser versions automatically
-      await latestBrowserVersionsTimer.start()
+      // 🚀 automatic latest browser versions update (opt-in, off by default - it makes third-party network requests)
+      if (s.generator.autoUpdateVersions) {
+        // start the timer (and do an immediate update) only when it is not running yet
+        if (!latestBrowserVersionsTimer.isStarted) {
+          latestBrowserVersions.update().catch((err) => debug('latest browser versions update error', err))
+
+          await latestBrowserVersionsTimer.start()
+        }
+      } else {
+        await latestBrowserVersionsTimer.stop()
+      }
     } else {
       // 🌚 otherwise, if the extension is disabled, we need to disable everything
       await Promise.allSettled([
@@ -203,8 +212,9 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
     await userAgentRenewTimer.start()
   }
 
-  // start the latest browser versions update timer on startup, if the extension is enabled
-  if (initSettings.enabled) {
+  // start the latest browser versions update timer on startup, if the extension is enabled and the user opted in
+  // (this feature is off by default because it makes periodic network requests to third-party services)
+  if (initSettings.enabled && initSettings.generator.autoUpdateVersions) {
     // initial update of the latest browser versions
     latestBrowserVersions.update().catch((err) => debug('latest browser versions update error', err))
 

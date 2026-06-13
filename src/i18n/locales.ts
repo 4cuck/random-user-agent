@@ -89,6 +89,11 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
     enable_generator_hint:
       'When disabled, the extension never generates a random User-Agent - it always uses your custom (or remote ' +
       'list) User-Agent instead',
+    auto_update_versions: 'Auto-update browser versions',
+    auto_update_versions_hint:
+      'Periodically fetch the latest browser versions from the internet (Google, Mozilla, MDN) to keep generated ' +
+      'user agents current. Off by default; when off, the built-in known-current version list is used and no ' +
+      'version-check requests are made',
     blacklist_settings: 'Blacklist settings',
     blacklist_settings_hint:
       'Blacklist mode - switching enabled everywhere, except the defined domains & rules. Whitelist - on the ' +

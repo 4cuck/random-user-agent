@@ -156,6 +156,10 @@ export type Localization<T extends string = string> = {
   enable_generator?: T
   /** Enable generator hint */
   enable_generator_hint?: T
+  /** Auto-update browser versions */
+  auto_update_versions?: T
+  /** Auto-update versions hint */
+  auto_update_versions_hint?: T
   /** Blacklist settings */
   blacklist_settings: T
   /** Blacklist mode - ... */

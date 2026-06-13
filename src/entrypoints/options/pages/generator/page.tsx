@@ -15,6 +15,7 @@ export default function Generator(): React.JSX.Element {
   const renewUserAgent = useRenewUserAgent()
   const [current, setCurrent] = useState<Array<SettingsGeneratorType>>([])
   const [enabled, setEnabled, enabledId] = [...useState<boolean>(), useId()]
+  const [autoUpdate, setAutoUpdate, autoUpdateId] = [...useState<boolean>(), useId()]
 
   /** Refresh settings */
   const refresh = useCallback(() => {
@@ -24,9 +25,10 @@ export default function Generator(): React.JSX.Element {
       }
 
       setEnabled(settings.generator.enabled)
+      setAutoUpdate(settings.generator.autoUpdateVersions)
       setCurrent([...settings.generator.types])
     })
-  }, [setCurrent, setEnabled])
+  }, [setCurrent, setEnabled, setAutoUpdate])
 
   /** Handle checkbox change */
   const handleCheckboxChange = useCallback(
@@ -78,6 +80,22 @@ export default function Generator(): React.JSX.Element {
                 saveSettings({ generator: { enabled: isChecked } }, 200)
                   .then(() => renewUserAgent().catch(throwIfErr))
                   .catch(throwIfErr)
+              }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+        <Grid.Row>
+          <Grid.Column>
+            <label htmlFor={autoUpdateId}>{i18n('auto_update_versions')}</label>
+            <Grid.Hint>{i18n('auto_update_versions_hint')}:</Grid.Hint>
+          </Grid.Column>
+          <Grid.Column>
+            <Switch
+              id={autoUpdateId}
+              checked={autoUpdate}
+              onChange={(isChecked) => {
+                setAutoUpdate(isChecked)
+                saveSettings({ generator: { autoUpdateVersions: isChecked } }, 200).catch(throwIfErr)
               }}
             />
           </Grid.Column>
