@@ -61,8 +61,13 @@ enum HeaderNames {
   SERVER_TIMING = 'server-timing', // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Server-Timing
 }
 
-// the following domains are always excluded from the rules
-const alwaysExcludedFor: ReadonlyArray<string> = ['challenges.cloudflare.com'].map(canonizeDomain)
+// Domains that are always excluded from the rules (none by default). When spoofing one Chromium browser as another
+// (Chrome <-> Edge <-> Opera <-> Brave) the TLS/JA3 handshake and the JS environment (the `chrome` object, canvas,
+// WebGL, ...) are genuinely identical, so a Cloudflare challenge can be satisfied as long as the spoof is fully
+// self-consistent - including inside Web Workers (see the worker navigator patch in inject.ts). The challenge is
+// therefore no longer carved out here; users who spoof across engines/OS (where untouchable signals diverge) can
+// still exclude `challenges.cloudflare.com` via the blacklist setting.
+const alwaysExcludedFor: ReadonlyArray<string> = []
 
 /**
  * The high-entropy Client Hint request headers. Unlike the low-entropy hints (`Sec-CH-UA`, `Sec-CH-UA-Mobile`,
@@ -141,18 +146,13 @@ export async function setRequestHeaders(
     }
   }
 
-  // add the always excluded domains to the condition
-  if (condition.excludedInitiatorDomains) {
-    condition.excludedInitiatorDomains = [...new Set(condition.excludedInitiatorDomains.concat(alwaysExcludedFor))]
-  } else {
-    condition.excludedInitiatorDomains = [...alwaysExcludedFor]
-  }
-
-  // and do the same for the request domains
-  if (condition.excludedRequestDomains) {
-    condition.excludedRequestDomains = [...new Set(condition.excludedRequestDomains.concat(alwaysExcludedFor))]
-  } else {
-    condition.excludedRequestDomains = [...alwaysExcludedFor]
+  // add the always-excluded domains to the condition, if any (a DNR condition must never contain an empty domain
+  // list, so we only touch these fields when there is actually something to exclude)
+  if (alwaysExcludedFor.length) {
+    condition.excludedInitiatorDomains = [
+      ...new Set((condition.excludedInitiatorDomains ?? []).concat(alwaysExcludedFor)),
+    ]
+    condition.excludedRequestDomains = [...new Set((condition.excludedRequestDomains ?? []).concat(alwaysExcludedFor))]
   }
 
   // user-configurable Client Hints overrides (managed in the extension settings). Empty values fall back to the

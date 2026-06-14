@@ -234,15 +234,24 @@ const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHea
     await setExtensionIcon(s.enabled)
   })
 
-  // observe (read-only) the Accept-CH response header so high-entropy Client Hints are only spoofed for origins
-  // that actually requested them - a real browser never sends high-entropy hints to a server that did not opt in.
-  // Only responses that (re)declare Accept-CH change the opt-in state, so everything else is a cheap no-op.
+  // observe (read-only) the Accept-CH / Critical-CH response headers so high-entropy Client Hints are only spoofed
+  // for origins that actually requested them - a real browser never sends high-entropy hints to a server that did
+  // not opt in. Only responses that (re)declare these headers change the opt-in state, so everything else is a
+  // cheap no-op.
   if (chrome.webRequest?.onHeadersReceived) {
     chrome.webRequest.onHeadersReceived.addListener(
       (details) => {
-        const header = details.responseHeaders?.find((h) => h.name.toLowerCase() === 'accept-ch')
+        const headers = details.responseHeaders
 
-        if (!header) {
+        if (!headers) {
+          return undefined
+        }
+
+        // a real browser opts in via Accept-CH and may force an immediate retry via Critical-CH - honor both
+        const accept = headers.find((h) => h.name.toLowerCase() === 'accept-ch')
+        const critical = headers.find((h) => h.name.toLowerCase() === 'critical-ch')
+
+        if (!accept && !critical) {
           return undefined
         }
 
@@ -255,10 +264,13 @@ const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHea
             return // ignore non-parseable URLs
           }
 
-          const requested = (header.value ?? '')
-            .split(',')
-            .map((token) => token.trim().toLowerCase())
-            .filter((token) => highEntropyHintSet.has(token))
+          const parse = (value: string | undefined): Array<string> =>
+            (value ?? '')
+              .split(',')
+              .map((token) => token.trim().toLowerCase())
+              .filter((token) => highEntropyHintSet.has(token))
+
+          const requested = [...new Set([...parse(accept?.value), ...parse(critical?.value)])]
 
           // rebuild the header rules only when the origin's opted-in hint set actually changed
           if (await acceptClientHints.remember(origin, requested)) {

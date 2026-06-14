@@ -104,6 +104,53 @@ import type { DeepWriteable } from '~/types'
       return
     }
 
+    // The masked user-agent string (Chromium browser/under-the-hood versions reduced to `major.0.0.0`) and the
+    // platform value. They are computed once and reused for the page, iframes, and Web Workers so a fingerprinter
+    // sees identical values everywhere it looks.
+    const spoofedUserAgent = ((): string => {
+      switch (payload.current.browser) {
+        case 'chrome':
+        case 'opera':
+        case 'edge': // blink engine
+        case 'brave': // blink engine
+          // mask the browser (and under the hood) versions, keeping only the major version (e.g., 92.0.4515.107 -> 92.0.0.0)
+          const masked = payload.current.userAgent.replaceAll(
+            payload.current.version.browser.full,
+            payload.current.version.browser.major +
+              '.0'.repeat(Math.max(0, payload.current.version.browser.full.split('.').length - 1))
+          )
+
+          if (payload.current.version.underHood) {
+            return masked.replaceAll(
+              payload.current.version.underHood.full || '',
+              payload.current.version.underHood.major +
+                '.0'.repeat(Math.max(0, payload.current.version.underHood.full.split('.').length - 1))
+            )
+          }
+
+          return masked
+      }
+
+      return payload.current.userAgent
+    })()
+
+    const spoofedPlatform = ((): string | undefined => {
+      switch (payload.current.os) {
+        case 'windows':
+          return 'Win32'
+        case 'linux':
+          return 'Linux x86_64'
+        case 'android':
+          return 'Linux armv8l'
+        case 'macOS':
+          return 'MacIntel'
+        case 'iOS':
+          return 'iPhone'
+      }
+
+      return undefined
+    })()
+
     /**
      * Function to patch the navigator object.
      *
@@ -115,36 +162,7 @@ import type { DeepWriteable } from '~/types'
       }
 
       // to test, execute in the console: `console.log(navigator.userAgent)`
-      overload(
-        n,
-        'userAgent',
-        ((): string => {
-          switch (payload.current.browser) {
-            case 'chrome':
-            case 'opera':
-            case 'edge': // blink engine
-            case 'brave': // blink engine
-              // mask the browser (and under the hood) versions, keeping only the major version (e.g., 92.0.4515.107 -> 92.0.0.0)
-              const masked = payload.current.userAgent.replaceAll(
-                payload.current.version.browser.full,
-                payload.current.version.browser.major +
-                  '.0'.repeat(Math.max(0, payload.current.version.browser.full.split('.').length - 1))
-              )
-
-              if (payload.current.version.underHood) {
-                return masked.replaceAll(
-                  payload.current.version.underHood.full || '',
-                  payload.current.version.underHood.major +
-                    '.0'.repeat(Math.max(0, payload.current.version.underHood.full.split('.').length - 1))
-                )
-              }
-
-              return masked
-          }
-
-          return payload.current.userAgent
-        })()
-      )
+      overload(n, 'userAgent', spoofedUserAgent)
 
       // to test, execute in the console: `console.log(navigator.appVersion)`
       overload(
@@ -167,31 +185,30 @@ import type { DeepWriteable } from '~/types'
       )
 
       // to test, execute in the console: `console.log(navigator.platform, navigator.oscpu)`
+      if (spoofedPlatform) {
+        overload(n, 'platform', spoofedPlatform)
+      }
+
       switch (payload.current.os) {
         case 'windows':
-          overload(n, 'platform', 'Win32')
           overload(n, 'oscpu', payload.current.browser === 'firefox' ? 'Windows NT; Win64; x64' : undefined, {
             force: true,
           })
           break
 
         case 'linux':
-          overload(n, 'platform', 'Linux x86_64')
           overload(n, 'oscpu', payload.current.browser === 'firefox' ? 'Linux x86_64' : undefined, { force: true })
           break
 
         case 'android':
-          overload(n, 'platform', 'Linux armv8l')
           overload(n, 'oscpu', payload.current.browser === 'firefox' ? 'Linux armv8l' : undefined, { force: true })
           break
 
         case 'macOS':
-          overload(n, 'platform', 'MacIntel')
           overload(n, 'oscpu', payload.current.browser === 'firefox' ? 'Mac OS X' : undefined, { force: true })
           break
 
         case 'iOS':
-          overload(n, 'platform', 'iPhone')
           overload(n, 'oscpu', payload.current.browser === 'firefox' ? 'Mac OS X' : undefined, { force: true })
           break
 
@@ -379,6 +396,64 @@ import type { DeepWriteable } from '~/types'
 
     // patch the current navigator object
     patchNavigator(navigator)
+
+    // Patch navigator inside Web Workers too. Fingerprinters (e.g. Cloudflare Turnstile) spawn a Worker from a JS
+    // blob that reports navigator.platform / userAgent / userAgentData and compare it to the page; if the page is
+    // spoofed but the worker is not, the mismatch reveals the spoof (e.g. the host browser's real version leaks in
+    // the worker). We prepend a small re-spoofing snippet to the source of JS blobs so any worker built from one
+    // reports the same values as the page.
+    if (spoofedPlatform) {
+      try {
+        const workerData = JSON.stringify({
+          platform: spoofedPlatform,
+          userAgent: spoofedUserAgent,
+          brands: payload.brands.major.map(({ brand, version }) => ({ brand, version })),
+          fullVersionList: payload.brands.full.map(({ brand, version }) => ({ brand, version })),
+          mobile: payload.isMobile,
+          uaPlatform: payload.platform,
+          platformVersion: payload.platformVersion,
+          architecture: payload.architecture,
+          bitness: payload.bitness,
+          model: payload.model || '',
+          fullVersion: payload.fullVersion || payload.current.version.browser.full,
+          formFactors: payload.formFactors,
+        })
+
+        // self-contained snippet (runs inside the worker) that re-applies the navigator overrides
+        const workerPatch = `;(function(d){try{var n=self.navigator;var def=function(o,k,v){try{Object.defineProperty(o,k,{get:function(){return v},configurable:true})}catch(e){}};def(n,"platform",d.platform);def(n,"userAgent",d.userAgent);var u=n.userAgentData;if(u){def(u,"brands",d.brands);def(u,"mobile",d.mobile);def(u,"platform",d.uaPlatform);var g=u.getHighEntropyValues?u.getHighEntropyValues.bind(u):null;def(u,"getHighEntropyValues",function(h){return (g?g(h):Promise.resolve({})).then(function(v){v=v||{};v.brands=d.brands;v.fullVersionList=d.fullVersionList;v.mobile=d.mobile;v.platform=d.uaPlatform;v.platformVersion=d.platformVersion;v.architecture=d.architecture;v.bitness=d.bitness;v.model=d.model;if("uaFullVersion" in v)v.uaFullVersion=d.fullVersion;if(d.formFactors&&d.formFactors.length)v.formFactors=d.formFactors;return v})})}}catch(e){}})(${workerData});\n`
+
+        // Prepend the patch to the source of JS blobs (only the `Blob` constructor is touched, kept native-looking
+        // via a Proxy). When such a blob is then used to spawn a worker - exactly what Cloudflare's Turnstile does -
+        // the worker re-applies the navigator overrides before its own code runs, so it reports the spoofed
+        // version/platform instead of the host browser's (e.g. CloakBrowser's native one). Cloudflare's own
+        // `URL.createObjectURL` and `Worker` are left untouched, so the worker runs from Cloudflare's own `blob:`
+        // URL: no new URL, no `worker-src blob:` CSP conflict, and nothing extra to detect.
+        const RealBlob = self.Blob
+
+        self.Blob = new Proxy(RealBlob, {
+          construct(target, args): object {
+            try {
+              const parts = args[0]
+              const type = String((args[1] as BlobPropertyBag | undefined)?.type || '').toLowerCase()
+
+              if (
+                Array.isArray(parts) &&
+                (type.includes('javascript') || type.includes('ecmascript')) &&
+                parts.every((p) => typeof p === 'string')
+              ) {
+                return Reflect.construct(target, [[workerPatch, ...(parts as ReadonlyArray<string>)], args[1]])
+              }
+            } catch {
+              /* ignore - fall through to an unmodified blob */
+            }
+
+            return Reflect.construct(target, args)
+          },
+        })
+      } catch (e) {
+        console.warn('💣 RUA: an error occurred while patching the worker navigator', e)
+      }
+    }
 
     // patch iframes navigators
     {
