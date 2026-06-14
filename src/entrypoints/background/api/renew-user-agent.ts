@@ -305,10 +305,25 @@ const parseUserAgentString = (ua: string): ReadonlyUserAgentState => {
     return { major: 0, full: '0.0.0' }
   })()
 
+  // Edge and Opera are Chromium wrappers - their user agent carries a separate "Chrome/<version>" token that is the
+  // under-the-hood Chromium engine version (distinct from the Edg/ or OPR/ brand version). Extract it so the
+  // "Chromium" Client Hints brand is reported (and the Chromium version override can apply) for custom user agents.
+  const underHood = ((): ReadonlyUserAgentState['version']['underHood'] => {
+    if (browser === 'edge' || browser === 'opera') {
+      const match = ua.match(/Chrome\/(\d+(?:\.\d+){0,3})/i)
+
+      if (match) {
+        return { major: parseInt(match[1].split('.')[0], 10), full: match[1] }
+      }
+    }
+
+    return undefined
+  })()
+
   return Object.freeze({
     userAgent: parsed.ua,
     browser,
     os,
-    version: { browser: browserVersion },
+    version: { browser: browserVersion, ...(underHood ? { underHood } : {}) },
   })
 }
