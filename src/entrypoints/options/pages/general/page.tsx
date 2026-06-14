@@ -39,6 +39,7 @@ export default function General(): React.JSX.Element {
   const [customUAEnabled, setCustomUAEnabled, customUAEnabledId] = [...useState<boolean>(), useId()]
   const [customUAText, setCustomUAText] = useState<string>()
   const [chFullVersion, setChFullVersion, chFullVersionId] = [...useState<string>(), useId()]
+  const [chChromiumVersion, setChChromiumVersion, chChromiumVersionId] = [...useState<string>(), useId()]
   const [chPlatformVersion, setChPlatformVersion, chPlatformVersionId] = [...useState<string>(), useId()]
   const [chPlatform, setChPlatform, chPlatformId] = [...useState<string>(), useId()]
   const [chFormFactors, setChFormFactors, chFormFactorsId] = [...useState<string>(), useId()]
@@ -70,6 +71,7 @@ export default function General(): React.JSX.Element {
       setRemoteUAListUrl(settings.remoteUseragentList.uri)
       setRemoteUAUpdIntervalSec(Math.round(settings.remoteUseragentList.updateIntervalMillis / 1000))
       setChFullVersion(settings.clientHints.fullVersion)
+      setChChromiumVersion(settings.clientHints.chromiumVersion)
       setChPlatformVersion(settings.clientHints.platformVersion)
       setChPlatform(settings.clientHints.platform)
       setChFormFactors(settings.clientHints.formFactors)
@@ -205,10 +207,28 @@ export default function General(): React.JSX.Element {
               id={chFullVersionId}
               value={chFullVersion}
               maxLength={32}
-              placeholder="149.0.7827.115"
+              placeholder="149.0.4022.69"
               onChange={async (v) => {
                 setChFullVersion(v)
                 await saveSettings({ clientHints: { fullVersion: v.trim() } }, delayFor.input)
+              }}
+              style={{ width: '100%' }}
+            />
+          </Grid.Column>
+        </Grid.Row>
+
+        <Grid.Row>
+          <Grid.Column style={{ outer: { width: '100%' }, inner: { width: '97%' } }}>
+            <label htmlFor={chChromiumVersionId}>{i18n('client_hints_chromium_version')}</label>
+            <Grid.Hint>{i18n('client_hints_chromium_version_hint')}:</Grid.Hint>
+            <Input.Text
+              id={chChromiumVersionId}
+              value={chChromiumVersion}
+              maxLength={32}
+              placeholder="149.0.7827.115"
+              onChange={async (v) => {
+                setChChromiumVersion(v)
+                await saveSettings({ clientHints: { chromiumVersion: v.trim() } }, delayFor.input)
               }}
               style={{ width: '100%' }}
             />

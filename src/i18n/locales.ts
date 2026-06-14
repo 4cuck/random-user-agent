@@ -51,10 +51,16 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
     js_protection: 'Protect against detection by JavaScript',
     custom_useragent: 'Use one of (in the randomized order) custom User-Agent instead generated',
     custom_useragent_list: 'Custom User-Agents (set a specific User-Agents, one per line)',
-    client_hints_full_version: 'Client Hints full version',
+    client_hints_full_version: 'Client Hints browser version',
     client_hints_full_version_hint:
-      'Override the full browser version reported via Client Hints (e.g. 149.0.7827.115). Applied only when its ' +
-      'major matches the active user agent; leave empty to derive it from the user agent',
+      'Override the browser brand full version reported via Client Hints - the "Google Chrome" / "Microsoft Edge" / ' +
+      '"Opera" brand and Sec-CH-UA-Full-Version (e.g. 149.0.4022.69 for Edge). Applied only when its major matches ' +
+      'the active user agent; leave empty to derive it from the user agent',
+    client_hints_chromium_version: 'Client Hints Chromium version',
+    client_hints_chromium_version_hint:
+      'Override the underlying Chromium engine version reported as the "Chromium" brand for Edge / Opera (e.g. ' +
+      '149.0.7827.115). Applied only when its major matches the active under-the-hood Chromium version; leave empty ' +
+      'to derive it from the user agent',
     client_hints_platform_version: 'Client Hints platform version',
     client_hints_platform_version_hint:
       'Override the platform version reported via Sec-CH-UA-Platform-Version (e.g. 19.0.0). Leave empty to use the ' +

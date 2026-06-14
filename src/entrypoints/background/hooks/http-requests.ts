@@ -129,24 +129,28 @@ export async function setRequestHeaders(
   // user-configurable Client Hints overrides (managed in the extension settings). Empty values fall back to the
   // data derived from the active user agent.
   const fullVersionOverride = (clientHints?.fullVersion ?? '').trim()
+  const chromiumVersionOverride = (clientHints?.chromiumVersion ?? '').trim()
   // Opera Mobile is special: it reports a four-brand list with an extra "OperaMobile" brand, and its
   // `uaFullVersion` / `Sec-CH-UA-Full-Version` carry the (configurable) OperaMobile version
   const isOperaMobile = ua.browser === 'opera' && ua.os === 'android'
   const operaMobileFull = (clientHints?.operaMobileVersion ?? '').trim() || defaultOperaMobileVersion
   const operaMobileMajor = parseInt(operaMobileFull, 10) || 0
-  const effectiveFull = ((): string => {
-    if (isOperaMobile) {
-      return operaMobileFull
-    }
-
-    // the full-version override is applied only when its major matches the active user agent major version,
-    // otherwise it is ignored to keep `Sec-CH-UA` (major) and `Sec-CH-UA-Full-Version-List` (full) consistent
-    if (fullVersionOverride && parseInt(fullVersionOverride, 10) === ua.version.browser.major) {
-      return fullVersionOverride
-    }
-
-    return ua.version.browser.full
-  })()
+  // The wrapper brand full version (the "Google Chrome" / "Microsoft Edge" / "Opera" brand). The user override is
+  // applied only when its major matches the active user agent major, so `Sec-CH-UA` (major) and the user agent
+  // string stay consistent with `Sec-CH-UA-Full-Version-List` (full).
+  const brandFull =
+    fullVersionOverride && parseInt(fullVersionOverride, 10) === ua.version.browser.major
+      ? fullVersionOverride
+      : ua.version.browser.full
+  // The under-the-hood Chromium engine full version (the "Chromium" brand) for Chromium wrappers (Edge, Opera).
+  // Same major-match rule, compared against the under-the-hood Chromium major version.
+  const chromiumFull =
+    chromiumVersionOverride && ua.version.underHood && parseInt(chromiumVersionOverride, 10) === ua.version.underHood.major
+      ? chromiumVersionOverride
+      : ua.version.underHood?.full || ''
+  // `uaFullVersion` / `Sec-CH-UA-Full-Version`: Opera Mobile reports the OperaMobile version, every other browser
+  // reports its own brand full version
+  const effectiveFull = isOperaMobile ? operaMobileFull : brandFull
   const platformOverride = (clientHints?.platform ?? '').trim()
   const platformVersionOverride = (clientHints?.platformVersion ?? '').trim()
   const formFactors = (clientHints?.formFactors ?? '')
@@ -179,15 +183,15 @@ export async function setRequestHeaders(
   const brandsWithFull = (() => {
     switch (ua.browser) {
       case 'chrome':
-        return browserBrands('chrome', effectiveFull)
+        return browserBrands('chrome', brandFull)
       case 'opera':
         return isOperaMobile
-          ? operaMobileBrands(ua.version.browser.full, ua.version.underHood?.full || '', operaMobileFull)
-          : browserBrands('opera', effectiveFull, ua.version.underHood?.full || '')
+          ? operaMobileBrands(brandFull, chromiumFull, operaMobileFull)
+          : browserBrands('opera', brandFull, chromiumFull)
       case 'edge':
-        return browserBrands('edge', effectiveFull, ua.version.underHood?.full || '')
+        return browserBrands('edge', brandFull, chromiumFull)
       case 'brave':
-        return browserBrands('brave', effectiveFull)
+        return browserBrands('brave', brandFull)
     }
 
     return []

@@ -120,6 +120,10 @@ export type Localization<T extends string = string> = {
   client_hints_full_version?: T
   /** Client Hints full version hint */
   client_hints_full_version_hint?: T
+  /** Client Hints Chromium version */
+  client_hints_chromium_version?: T
+  /** Client Hints Chromium version hint */
+  client_hints_chromium_version_hint?: T
   /** Client Hints platform version */
   client_hints_platform_version?: T
   /** Client Hints platform version hint */

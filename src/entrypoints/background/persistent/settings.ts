@@ -32,6 +32,7 @@ export default class {
     },
     clientHints: {
       fullVersion: '',
+      chromiumVersion: '',
       platformVersion: '',
       platform: '',
       formFactors: '',

@@ -66,9 +66,14 @@ type SettingsState = {
 
   // User-configurable Client Hints overrides. Empty strings mean "use the value derived from the user agent".
   clientHints: {
-    // Full browser version reported via Client Hints (e.g. "149.0.7827.115"). Applied only when its major version
-    // matches the active user agent's major version (otherwise it is ignored to avoid inconsistencies).
+    // The browser's own ("Google Chrome" / "Microsoft Edge" / "Opera") brand full version reported via Client Hints
+    // and `Sec-CH-UA-Full-Version` (e.g. "149.0.4022.69" for Edge). Applied only when its major version matches the
+    // active user agent's major version (otherwise it is ignored to avoid inconsistencies).
     fullVersion: string
+    // Full Chromium engine version reported as the "Chromium" brand for Chromium wrappers (Microsoft Edge, Opera),
+    // which can differ from the brand version above (e.g. Edge 149.0.4022.69 runs on Chromium 149.0.7827.115).
+    // Applied only when its major matches the active under-the-hood Chromium major; empty = derived from the UA.
+    chromiumVersion: string
     // Platform version for `Sec-CH-UA-Platform-Version` (e.g. "19.0.0"). Empty = per-OS default.
     platformVersion: string
     // Platform name for `Sec-CH-UA-Platform` (e.g. "Windows", "macOS"). Empty = derived from the user agent OS.
