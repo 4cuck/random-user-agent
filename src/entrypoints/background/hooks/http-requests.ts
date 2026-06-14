@@ -135,13 +135,16 @@ export async function setRequestHeaders(
   const isOperaMobile = ua.browser === 'opera' && ua.os === 'android'
   const operaMobileFull = (clientHints?.operaMobileVersion ?? '').trim() || defaultOperaMobileVersion
   const operaMobileMajor = parseInt(operaMobileFull, 10) || 0
-  // The wrapper brand full version (the "Google Chrome" / "Microsoft Edge" / "Opera" brand). The user override is
-  // applied only when its major matches the active user agent major, so `Sec-CH-UA` (major) and the user agent
-  // string stay consistent with `Sec-CH-UA-Full-Version-List` (full).
-  const brandFull =
-    fullVersionOverride && parseInt(fullVersionOverride, 10) === ua.version.browser.major
-      ? fullVersionOverride
-      : ua.version.browser.full
+  // The wrapper brand version (the "Google Chrome" / "Microsoft Edge" / "Opera" brand). The user override is applied
+  // only when its major matches the active user agent major, so `Sec-CH-UA` (major) and the user agent string stay
+  // consistent with `Sec-CH-UA-Full-Version-List` (full).
+  // Opera Mobile is the exception: its "Opera" brand version (e.g. 133) is independent of the user agent, which
+  // carries the OperaMobile version in its OPR/ token (e.g. OPR/99), not the Opera-brand major - so the override is
+  // applied unconditionally there (it never contradicts the user agent string).
+  const applyBrandOverride =
+    !!fullVersionOverride && (isOperaMobile || parseInt(fullVersionOverride, 10) === ua.version.browser.major)
+  const brandFull = applyBrandOverride ? fullVersionOverride : ua.version.browser.full
+  const brandMajor = applyBrandOverride ? parseInt(fullVersionOverride, 10) : ua.version.browser.major
   // The under-the-hood Chromium engine full version (the "Chromium" brand) for Chromium wrappers (Edge, Opera).
   // Same major-match rule, compared against the under-the-hood Chromium major version.
   const chromiumFull =
@@ -166,15 +169,15 @@ export async function setRequestHeaders(
   const brandsWithMajor = (() => {
     switch (ua.browser) {
       case 'chrome':
-        return browserBrands('chrome', ua.version.browser.major)
+        return browserBrands('chrome', brandMajor)
       case 'opera':
         return isOperaMobile
-          ? operaMobileBrands(ua.version.browser.major, ua.version.underHood?.major || 0, operaMobileMajor)
-          : browserBrands('opera', ua.version.browser.major, ua.version.underHood?.major || 0)
+          ? operaMobileBrands(brandMajor, ua.version.underHood?.major || 0, operaMobileMajor)
+          : browserBrands('opera', brandMajor, ua.version.underHood?.major || 0)
       case 'edge':
-        return browserBrands('edge', ua.version.browser.major, ua.version.underHood?.major || 0)
+        return browserBrands('edge', brandMajor, ua.version.underHood?.major || 0)
       case 'brave':
-        return browserBrands('brave', ua.version.browser.major)
+        return browserBrands('brave', brandMajor)
     }
 
     return []

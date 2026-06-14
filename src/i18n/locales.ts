@@ -54,8 +54,9 @@ export const locales: Partial<Record<LocaleCode, Localization>> = {
     client_hints_full_version: 'Client Hints browser version',
     client_hints_full_version_hint:
       'Override the browser brand full version reported via Client Hints - the "Google Chrome" / "Microsoft Edge" / ' +
-      '"Opera" brand and Sec-CH-UA-Full-Version (e.g. 149.0.4022.69 for Edge). Applied only when its major matches ' +
-      'the active user agent; leave empty to derive it from the user agent',
+      '"Opera" brand (e.g. 149.0.4022.69 for Edge, or 133.0.5950.0 for the Opera Mobile "Opera" brand). Applied ' +
+      'when its major matches the active user agent (always applied for the Opera Mobile "Opera" brand, whose ' +
+      'version is independent of the OPR/ token); leave empty to derive it from the user agent',
     client_hints_chromium_version: 'Client Hints Chromium version',
     client_hints_chromium_version_hint:
       'Override the underlying Chromium engine version reported as the "Chromium" brand for Edge / Opera (e.g. ' +
