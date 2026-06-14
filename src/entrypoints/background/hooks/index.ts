@@ -1,2 +1,2 @@
-export { setRequestHeaders, unsetRequestHeaders } from './http-requests'
+export { setRequestHeaders, unsetRequestHeaders, highEntropyClientHintHeaders } from './http-requests'
 export { registerContentScripts } from './scripting'

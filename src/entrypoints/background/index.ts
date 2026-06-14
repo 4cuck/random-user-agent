@@ -1,9 +1,16 @@
-import { checkPermissions, detectBrowser, watchPermissionsChange } from '~/shared'
+import { canonizeDomain, checkPermissions, detectBrowser, watchPermissionsChange } from '~/shared'
 import { type HandlersMap, listen as listenRuntime } from '~/shared/messaging'
 import { isApplicableForDomain, reloadRequestHeaders, renewUserAgent, updateRemoteUserAgentList } from './api'
-import { registerContentScripts, unsetRequestHeaders } from './hooks'
+import { highEntropyClientHintHeaders, registerContentScripts, unsetRequestHeaders } from './hooks'
 import { registerHotkeys } from './hotkeys'
-import { CurrentUserAgent, RemoteUserAgentList, Settings, StorageArea, LatestBrowserVersions } from './persistent'
+import {
+  AcceptClientHints,
+  CurrentUserAgent,
+  RemoteUserAgentList,
+  Settings,
+  StorageArea,
+  LatestBrowserVersions,
+} from './persistent'
 import { Timer } from './timer'
 import { setExtensionIcon, setExtensionTitle } from './ui'
 
@@ -11,6 +18,8 @@ import { setExtensionIcon, setExtensionTitle } from './ui'
 const debug = (msg: string, ...args: Array<unknown>): void => console.debug(`%c😈 ${msg}`, 'font-weight:bold', ...args)
 /** Convert milliseconds to seconds */
 const m2s = (millis: number): number => Math.round(millis / 1000)
+/** The high-entropy Client Hint header names (lowercased), used to filter `Accept-CH` directives. */
+const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHeaders.map((h) => h.toLowerCase()))
 
 // run the background script
 ;(async () => {
@@ -49,6 +58,10 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
   const latestBrowserVersions = new LatestBrowserVersions(new StorageArea('latest-browser-versions', 'local'))
   debug('initial latest browser versions', ...(await latestBrowserVersions.get()))
 
+  // tracks which origins opted into high-entropy Client Hints via the Accept-CH response header (see the
+  // webRequest listener below), so those hints are only sent to servers that requested them - like a real browser
+  const acceptClientHints = new AcceptClientHints()
+
   // handlers is a map of functions that can be called from the popup or content scripts (and not only from them).
   // think about them as a kind of API for the extension
   const handlers: HandlersMap = {
@@ -63,6 +76,31 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
     updateSettings: async (part) => (await settings.update(part)) && settings.get(),
     isApplicableForDomain: async (domain) => isApplicableForDomain(await settings.get(), domain),
     updateRemoteListNow: async (clear) => await updateRemoteUserAgentList(remoteUserAgentList, clear),
+    delegateClientHints: async (delegations) => {
+      // canonicalize the delegated target hostnames so they match the DNR rule / blacklist comparisons
+      const canonical: Record<string, ReadonlyArray<string>> = {}
+
+      for (const [host, hints] of Object.entries(delegations ?? {})) {
+        try {
+          const canon = canonizeDomain(host)
+
+          if (canon) {
+            canonical[canon] = hints
+          }
+        } catch {
+          // ignore invalid hostnames
+        }
+      }
+
+      // rebuild the header rules only if a new delegation was actually recorded
+      if (await acceptClientHints.delegate(canonical)) {
+        const s = await settings.get()
+
+        if (s.enabled) {
+          await reloadRequestHeaders(s, await currentUserAgent.get(), await acceptClientHints.getAll())
+        }
+      }
+    },
   }
 
   // create a timer to renew the user-agent automatically
@@ -95,7 +133,11 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
     await setExtensionTitle(c)
 
     // reload the request headers with the new user-agent information
-    const reloaded = await reloadRequestHeaders(await settings.get(), await currentUserAgent.get())
+    const reloaded = await reloadRequestHeaders(
+      await settings.get(),
+      await currentUserAgent.get(),
+      await acceptClientHints.getAll()
+    )
     debug('the request header rules have been ' + (reloaded ? 'set' : 'unset'), reloaded)
   })
 
@@ -142,7 +184,11 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
       }
 
       // 🚀 update the browser request headers with the current user-agent information
-      const reloaded = await reloadRequestHeaders(await settings.get(), await currentUserAgent.get())
+      const reloaded = await reloadRequestHeaders(
+        await settings.get(),
+        await currentUserAgent.get(),
+        await acceptClientHints.getAll()
+      )
       debug('the request header rules have been ' + (reloaded ? 'set' : 'unset'), reloaded)
 
       // 🚀 automatic latest browser versions update (opt-in, off by default - it makes third-party network requests)
@@ -187,6 +233,49 @@ const m2s = (millis: number): number => Math.round(millis / 1000)
     // update the extension icon state
     await setExtensionIcon(s.enabled)
   })
+
+  // observe (read-only) the Accept-CH response header so high-entropy Client Hints are only spoofed for origins
+  // that actually requested them - a real browser never sends high-entropy hints to a server that did not opt in.
+  // Only responses that (re)declare Accept-CH change the opt-in state, so everything else is a cheap no-op.
+  if (chrome.webRequest?.onHeadersReceived) {
+    chrome.webRequest.onHeadersReceived.addListener(
+      (details) => {
+        const header = details.responseHeaders?.find((h) => h.name.toLowerCase() === 'accept-ch')
+
+        if (!header) {
+          return undefined
+        }
+
+        void (async (): Promise<void> => {
+          let origin: string
+
+          try {
+            origin = canonizeDomain(new URL(details.url).hostname)
+          } catch {
+            return // ignore non-parseable URLs
+          }
+
+          const requested = (header.value ?? '')
+            .split(',')
+            .map((token) => token.trim().toLowerCase())
+            .filter((token) => highEntropyHintSet.has(token))
+
+          // rebuild the header rules only when the origin's opted-in hint set actually changed
+          if (await acceptClientHints.remember(origin, requested)) {
+            const s = await settings.get()
+
+            if (s.enabled) {
+              await reloadRequestHeaders(s, await currentUserAgent.get(), await acceptClientHints.getAll())
+            }
+          }
+        })()
+
+        return undefined
+      },
+      { urls: ['<all_urls>'], types: ['main_frame', 'sub_frame'] },
+      ['responseHeaders']
+    )
+  }
 
   // configure the remote user-agent list service
   if (initSettings.remoteUseragentList.enabled) {

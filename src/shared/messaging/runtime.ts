@@ -26,6 +26,12 @@ export type HandlersMap = {
 
   /** Updates the remote user-agent list now. */
   updateRemoteListNow: (clearBefore?: boolean) => Promise<Readonly<{ url: string; gotListSize: number }>>
+
+  /**
+   * Registers high-entropy Client Hints delegated via a `Delegate-CH` `<meta>` tag (sent by the content script).
+   * Maps each target origin (hostname) to the delegated hint header names.
+   */
+  delegateClientHints: (delegations: Readonly<Record<string, ReadonlyArray<string>>>) => Promise<void>
 }
 
 type HandlerName = keyof HandlersMap // union type of all handler names

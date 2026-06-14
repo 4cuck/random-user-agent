@@ -18,7 +18,9 @@ export async function isApplicableForDomain(settings: ReadonlySettingsState, dom
 /** Reloads the request headers based on the current settings and user-agent. */
 export async function reloadRequestHeaders(
   settings: ReadonlySettingsState,
-  current: ReadonlyUserAgentState | undefined
+  current: ReadonlyUserAgentState | undefined,
+  // origins that opted into high-entropy Client Hints via `Accept-CH`, mapped to the requested hint header names
+  acceptCH?: Readonly<Record<string, ReadonlyArray<string>>>
 ): Promise<Array<Rule> | void> {
   if (settings.enabled && current) {
     // if the extension is disabled or current user-agent is not set, we do not need to update the
@@ -29,7 +31,8 @@ export async function reloadRequestHeaders(
         ? { exceptDomains: settings.blacklist.domains }
         : { applyToDomains: settings.blacklist.domains },
       settings.jsProtection.enabled,
-      settings.clientHints
+      settings.clientHints,
+      acceptCH
     )
   }
 

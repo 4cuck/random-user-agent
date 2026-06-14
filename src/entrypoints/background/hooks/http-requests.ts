@@ -36,6 +36,16 @@ const RuleIDs: { readonly [_ in 'ReplaceUserAgent' | 'ReplaceClientHints' | 'Pro
   ProvidePayload: 3,
 }
 
+// High-entropy Client Hints are only sent to origins that opted in via the `Accept-CH` response header. Each
+// distinct requested hint set gets its own rule in this reserved id range, with a higher priority than the base
+// rules so its `set` operations win over the base rule's default `remove` operations.
+const HIGH_ENTROPY_RULE_ID_BASE = 1_000
+const MAX_HIGH_ENTROPY_RULES = 128
+const managedRuleIds: ReadonlyArray<number> = [
+  ...Object.values(RuleIDs),
+  ...Array.from({ length: MAX_HIGH_ENTROPY_RULES }, (_, i) => HIGH_ENTROPY_RULE_ID_BASE + i),
+]
+
 enum HeaderNames {
   USER_AGENT = 'User-Agent',
   CLIENT_HINT_FULL_VERSION = 'Sec-CH-UA-Full-Version', // deprecated, https://mzl.la/3g1NzEI
@@ -53,6 +63,22 @@ enum HeaderNames {
 
 // the following domains are always excluded from the rules
 const alwaysExcludedFor: ReadonlyArray<string> = ['challenges.cloudflare.com'].map(canonizeDomain)
+
+/**
+ * The high-entropy Client Hint request headers. Unlike the low-entropy hints (`Sec-CH-UA`, `Sec-CH-UA-Mobile`,
+ * `Sec-CH-UA-Platform`), which every browser sends on every request, these are sent by a real browser only to
+ * origins that requested them through the `Accept-CH` response header. The extension therefore strips them by
+ * default and re-adds the spoofed values only for opted-in origins.
+ */
+export const highEntropyClientHintHeaders: ReadonlyArray<string> = [
+  HeaderNames.CLIENT_HINT_BRAND_FULL,
+  HeaderNames.CLIENT_HINT_FULL_VERSION,
+  HeaderNames.CLIENT_HINT_PLATFORM_VERSION,
+  HeaderNames.CLIENT_HINT_ARCH,
+  HeaderNames.CLIENT_HINT_BITNESS,
+  HeaderNames.CLIENT_HINT_MODEL,
+  HeaderNames.CLIENT_HINT_FORM_FACTORS,
+]
 
 /**
  * Enables the request headers modification.
@@ -73,7 +99,10 @@ export async function setRequestHeaders(
   ua: ReadonlyUserAgentState,
   filter?: { applyToDomains?: ReadonlyArray<string>; exceptDomains?: ReadonlyArray<string> },
   sendPayload: boolean = false,
-  clientHints?: ReadonlySettingsState['clientHints']
+  clientHints?: ReadonlySettingsState['clientHints'],
+  // origins (canonical hostnames) that opted into high-entropy Client Hints via `Accept-CH`, mapped to the hint
+  // header names they requested. When omitted, no high-entropy hints are sent (only the low-entropy ones).
+  acceptCH?: Readonly<Record<string, ReadonlyArray<string>>>
 ): Promise<Array<chrome.declarativeNetRequest.Rule>> {
   const condition: chrome.declarativeNetRequest.RuleCondition = {
     resourceTypes: Object.values(chrome?.declarativeNetRequest?.ResourceType || {}),
@@ -148,7 +177,9 @@ export async function setRequestHeaders(
   // The under-the-hood Chromium engine full version (the "Chromium" brand) for Chromium wrappers (Edge, Opera).
   // Same major-match rule, compared against the under-the-hood Chromium major version.
   const chromiumFull =
-    chromiumVersionOverride && ua.version.underHood && parseInt(chromiumVersionOverride, 10) === ua.version.underHood.major
+    chromiumVersionOverride &&
+    ua.version.underHood &&
+    parseInt(chromiumVersionOverride, 10) === ua.version.underHood.major
       ? chromiumVersionOverride
       : ua.version.underHood?.full || ''
   // `uaFullVersion` / `Sec-CH-UA-Full-Version`: Opera Mobile reports the OperaMobile version, every other browser
@@ -204,6 +235,52 @@ export async function setRequestHeaders(
   const setIsMobile = isMobile(ua.os)
   const setPlatformVersion = platformVersionOverride || platformVersion(setPlatform)
 
+  // High-entropy Client Hint values (header -> value), derived from the spoofed user agent. `undefined` means the
+  // hint is not applicable for the current browser/config and is therefore never sent.
+  const highEntropyHeaderValues: ReadonlyArray<readonly [HeaderNames, string | undefined]> = [
+    [
+      HeaderNames.CLIENT_HINT_BRAND_FULL,
+      brandsWithFull.length ? brandsWithFull.map((b) => `"${b.brand}";v="${b.version}"`).join(', ') : undefined,
+    ],
+    // Sec-CH-UA-Full-Version is deprecated; Brave strips it for privacy, so we omit it when spoofing Brave
+    [
+      HeaderNames.CLIENT_HINT_FULL_VERSION,
+      brandsWithMajor.length && ua.browser !== 'brave' ? `"${effectiveFull}"` : undefined,
+    ],
+    [
+      HeaderNames.CLIENT_HINT_PLATFORM_VERSION,
+      brandsWithMajor.length && setPlatformVersion ? `"${setPlatformVersion}"` : undefined,
+    ],
+    [HeaderNames.CLIENT_HINT_ARCH, brandsWithMajor.length ? `"${architecture}"` : undefined],
+    [HeaderNames.CLIENT_HINT_BITNESS, brandsWithMajor.length ? `"${bitness}"` : undefined],
+    // Sec-CH-UA-Model is emitted to any opted-in Chromium origin, defaulting to "" like a real desktop browser
+    [HeaderNames.CLIENT_HINT_MODEL, brandsWithMajor.length ? `"${model}"` : undefined],
+    [
+      HeaderNames.CLIENT_HINT_FORM_FACTORS,
+      brandsWithMajor.length && formFactors.length ? formFactors.map((f) => `"${f}"`).join(', ') : undefined,
+    ],
+  ]
+
+  // is the extension active for the given (canonical request) origin, per the current blacklist/whitelist filter?
+  const isOriginInScope = (origin: string): boolean => {
+    const matches = (domains: ReadonlyArray<string>): boolean =>
+      domains.some((d) => {
+        const canonical = canonizeDomain(d)
+
+        return origin === canonical || origin.endsWith(`.${canonical}`)
+      })
+
+    if (filter?.applyToDomains?.length) {
+      return matches(filter.applyToDomains)
+    }
+
+    if (filter?.exceptDomains?.length) {
+      return !matches(filter.exceptDomains)
+    }
+
+    return true
+  }
+
   const payload: ContentScriptPayload = {
     current: ua,
     brands: {
@@ -247,13 +324,6 @@ export async function setRequestHeaders(
                 value: brandsWithMajor.map((b) => `"${b.brand}";v="${b.version}"`).join(', '),
               }
             : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_BRAND_MAJOR },
-          brandsWithFull.length
-            ? {
-                operation: HeaderOperation.SET,
-                header: HeaderNames.CLIENT_HINT_BRAND_FULL,
-                value: brandsWithFull.map((b) => `"${b.brand}";v="${b.version}"`).join(', '),
-              }
-            : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_BRAND_FULL },
           {
             operation: HeaderOperation.SET,
             header: HeaderNames.CLIENT_HINT_PLATFORM,
@@ -264,59 +334,10 @@ export async function setRequestHeaders(
             header: HeaderNames.CLIENT_HINT_MOBILE,
             value: setIsMobile ? '?1' : '?0',
           },
-          // Sec-CH-UA-Full-Version (deprecated, but still requested by some sites) is emitted for Chromium-based
-          // user agents so it stays consistent with the full-version list instead of leaking the real browser value.
-          // Brave is the exception - it strips this header for privacy, so we do the same when spoofing Brave.
-          brandsWithMajor.length && ua.browser !== 'brave'
-            ? {
-                operation: HeaderOperation.SET,
-                header: HeaderNames.CLIENT_HINT_FULL_VERSION,
-                value: `"${effectiveFull}"`,
-              }
-            : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_FULL_VERSION },
-          brandsWithMajor.length && setPlatformVersion
-            ? {
-                operation: HeaderOperation.SET,
-                header: HeaderNames.CLIENT_HINT_PLATFORM_VERSION,
-                value: `"${setPlatformVersion}"`,
-              }
-            : { operation: HeaderOperation.REMOVE, header: HeaderNames.CLIENT_HINT_PLATFORM_VERSION },
-          // Sec-CH-UA-Form-Factors and Sec-CH-UA-Model are opt-in (only set when the user configured them, so the
-          // real browser values otherwise pass through untouched)
-          ...(brandsWithMajor.length && formFactors.length
-            ? [
-                {
-                  operation: HeaderOperation.SET,
-                  header: HeaderNames.CLIENT_HINT_FORM_FACTORS,
-                  value: formFactors.map((f) => `"${f}"`).join(', '),
-                },
-              ]
-            : []),
-          ...(brandsWithMajor.length && model
-            ? [
-                {
-                  operation: HeaderOperation.SET,
-                  header: HeaderNames.CLIENT_HINT_MODEL,
-                  value: `"${model}"`,
-                },
-              ]
-            : []),
-          // Sec-CH-UA-Arch / Sec-CH-UA-Bitness are set for Chromium user agents; on mobile they are empty strings,
-          // exactly like a real mobile Chromium browser reports them
-          ...(brandsWithMajor.length
-            ? [
-                {
-                  operation: HeaderOperation.SET,
-                  header: HeaderNames.CLIENT_HINT_ARCH,
-                  value: `"${architecture}"`,
-                },
-                {
-                  operation: HeaderOperation.SET,
-                  header: HeaderNames.CLIENT_HINT_BITNESS,
-                  value: `"${bitness}"`,
-                },
-              ]
-            : []),
+          // High-entropy hints are stripped by default (a real browser does not send them unless the server opted
+          // in via Accept-CH). They are re-added with spoofed values only for opted-in origins by the higher
+          // priority rules built below - this also prevents the real browser values from leaking.
+          ...highEntropyHeaderValues.map(([header]) => ({ operation: HeaderOperation.REMOVE, header })),
         ],
       },
       condition,
@@ -340,8 +361,51 @@ export async function setRequestHeaders(
     })
   }
 
+  // build the high-entropy rules: one per distinct requested hint set, applied only to the in-scope origins that
+  // opted into exactly that set via Accept-CH (higher priority so each `set` wins over the base rule's `remove`)
+  if (acceptCH) {
+    const groups = new Map<
+      string,
+      { headers: Array<chrome.declarativeNetRequest.ModifyHeaderInfo>; origins: Array<string> }
+    >()
+
+    for (const [origin, requestedHints] of Object.entries(acceptCH)) {
+      if (!origin || !isOriginInScope(origin)) {
+        continue
+      }
+
+      const requested = new Set(requestedHints.map((h) => h.toLowerCase()))
+      const headers = highEntropyHeaderValues
+        .filter(([header, value]) => value !== undefined && requested.has(header.toLowerCase()))
+        .map(([header, value]) => ({ operation: HeaderOperation.SET, header, value: value as string }))
+
+      if (!headers.length) {
+        continue
+      }
+
+      const key = headers.map((h) => h.header).join(',')
+      const group = groups.get(key) ?? { headers, origins: [] }
+      group.origins.push(origin)
+      groups.set(key, group)
+    }
+
+    let highEntropyRuleId = HIGH_ENTROPY_RULE_ID_BASE
+    for (const group of groups.values()) {
+      if (highEntropyRuleId >= HIGH_ENTROPY_RULE_ID_BASE + MAX_HIGH_ENTROPY_RULES) {
+        break // safety cap on the number of distinct high-entropy rules
+      }
+
+      rules.push({
+        id: highEntropyRuleId++,
+        priority: 2,
+        action: { type: RuleActionType.MODIFY_HEADERS, requestHeaders: group.headers },
+        condition: { ...condition, requestDomains: group.origins },
+      })
+    }
+  }
+
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: Object.values(RuleIDs), // remove existing rules
+    removeRuleIds: [...managedRuleIds], // remove all rules this extension manages (base + high-entropy)
     addRules: rules,
   })
 
@@ -351,6 +415,6 @@ export async function setRequestHeaders(
 /** Unsets the request headers. */
 export async function unsetRequestHeaders(): Promise<void> {
   await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds: Object.values(RuleIDs), // remove existing rules
+    removeRuleIds: [...managedRuleIds], // remove all rules this extension manages (base + high-entropy)
   })
 }
