@@ -50,10 +50,11 @@ import type { DeepWriteable } from '~/types'
     value: unknown,
     options: { force?: boolean; configurable?: boolean; writable?: boolean } = {
       force: false,
-      configurable: false,
+      configurable: true,
       writable: false,
     }
   ): void => {
+    const opts = { force: false, configurable: true, writable: false, ...options }
     let target: T = t
 
     try {
@@ -62,23 +63,23 @@ import type { DeepWriteable } from '~/types'
 
         // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty
         if (descriptor && descriptor.configurable) {
-          const newAttributes: PropertyDescriptor = { configurable: options.configurable, enumerable: true }
+          const newAttributes: PropertyDescriptor = { configurable: opts.configurable, enumerable: true }
 
           // respect the original value getting method
           if (descriptor.get) {
             newAttributes.get = () => value
           } else {
             newAttributes.value = value
-            newAttributes.writable = options.writable
+            newAttributes.writable = opts.writable
           }
 
           Object.defineProperty(target, prop, newAttributes)
-        } else if (options.force && Object.getPrototypeOf(t) === Object.getPrototypeOf(target)) {
+        } else if (opts.force && Object.getPrototypeOf(t) === Object.getPrototypeOf(target)) {
           Object.defineProperty(target, prop, {
             value,
-            configurable: options.configurable,
+            configurable: opts.configurable,
             enumerable: true,
-            writable: options.writable,
+            writable: opts.writable,
           })
         }
 
@@ -134,6 +135,21 @@ import type { DeepWriteable } from '~/types'
       return payload.current.userAgent
     })()
 
+    const spoofedAppVersion = ((): string => {
+      if (payload.current.browser === 'firefox') {
+        switch (payload.current.os) {
+          case 'windows':
+            return '5.0 (Windows)'
+          case 'linux':
+            return '5.0 (X11)'
+        }
+
+        return '5.0'
+      }
+
+      return spoofedUserAgent.replace(/^Mozilla\//i, '')
+    })()
+
     const spoofedPlatform = ((): string | undefined => {
       switch (payload.current.os) {
         case 'windows':
@@ -165,24 +181,7 @@ import type { DeepWriteable } from '~/types'
       overload(n, 'userAgent', spoofedUserAgent)
 
       // to test, execute in the console: `console.log(navigator.appVersion)`
-      overload(
-        n,
-        'appVersion',
-        ((): string => {
-          if (payload.current.browser === 'firefox') {
-            switch (payload.current.os) {
-              case 'windows':
-                return '5.0 (Windows)'
-              case 'linux':
-                return '5.0 (X11)'
-            }
-
-            return '5.0'
-          }
-
-          return payload.current.userAgent.replace(/^Mozilla\//i, '')
-        })()
-      )
+      overload(n, 'appVersion', spoofedAppVersion)
 
       // to test, execute in the console: `console.log(navigator.platform, navigator.oscpu)`
       if (spoofedPlatform) {
@@ -407,6 +406,7 @@ import type { DeepWriteable } from '~/types'
         const workerData = JSON.stringify({
           platform: spoofedPlatform,
           userAgent: spoofedUserAgent,
+          appVersion: spoofedAppVersion,
           brands: payload.brands.major.map(({ brand, version }) => ({ brand, version })),
           fullVersionList: payload.brands.full.map(({ brand, version }) => ({ brand, version })),
           mobile: payload.isMobile,
@@ -420,7 +420,7 @@ import type { DeepWriteable } from '~/types'
         })
 
         // self-contained snippet (runs inside the worker) that re-applies the navigator overrides
-        const workerPatch = `;(function(d){try{var n=self.navigator;var def=function(o,k,v){try{Object.defineProperty(o,k,{get:function(){return v},configurable:true})}catch(e){}};def(n,"platform",d.platform);def(n,"userAgent",d.userAgent);var u=n.userAgentData;if(u){def(u,"brands",d.brands);def(u,"mobile",d.mobile);def(u,"platform",d.uaPlatform);var g=u.getHighEntropyValues?u.getHighEntropyValues.bind(u):null;def(u,"getHighEntropyValues",function(h){return (g?g(h):Promise.resolve({})).then(function(v){v=v||{};v.brands=d.brands;v.fullVersionList=d.fullVersionList;v.mobile=d.mobile;v.platform=d.uaPlatform;v.platformVersion=d.platformVersion;v.architecture=d.architecture;v.bitness=d.bitness;v.model=d.model;if("uaFullVersion" in v)v.uaFullVersion=d.fullVersion;if(d.formFactors&&d.formFactors.length)v.formFactors=d.formFactors;return v})})}}catch(e){}})(${workerData});\n`
+        const workerPatch = `;(function(d){try{var n=self.navigator;var def=function(o,k,v){try{Object.defineProperty(o,k,{get:function(){return v},configurable:true})}catch(e){}};def(n,"platform",d.platform);def(n,"userAgent",d.userAgent);def(n,"appVersion",d.appVersion);var u=n.userAgentData;if(u){def(u,"brands",d.brands);def(u,"mobile",d.mobile);def(u,"platform",d.uaPlatform);var g=u.getHighEntropyValues?u.getHighEntropyValues.bind(u):null;def(u,"getHighEntropyValues",function(h){return (g?g(h):Promise.resolve({})).then(function(v){v=v||{};v.brands=d.brands;v.fullVersionList=d.fullVersionList;v.mobile=d.mobile;v.platform=d.uaPlatform;v.platformVersion=d.platformVersion;v.architecture=d.architecture;v.bitness=d.bitness;v.model=d.model;if("uaFullVersion" in v)v.uaFullVersion=d.fullVersion;if(d.formFactors&&d.formFactors.length)v.formFactors=d.formFactors;return v})})}}catch(e){}})(${workerData});\n`
 
         // Prepend the patch to the source of JS blobs (only the `Blob` constructor is touched, kept native-looking
         // via a Proxy). When such a blob is then used to spawn a worker - exactly what Cloudflare's Turnstile does -
@@ -435,13 +435,18 @@ import type { DeepWriteable } from '~/types'
             try {
               const parts = args[0]
               const type = String((args[1] as BlobPropertyBag | undefined)?.type || '').toLowerCase()
-
-              if (
+              const isJavaScriptBlob = type.includes('javascript') || type.includes('ecmascript')
+              const looksLikeWorkerSource =
+                !type &&
                 Array.isArray(parts) &&
-                (type.includes('javascript') || type.includes('ecmascript')) &&
-                parts.every((p) => typeof p === 'string')
-              ) {
-                return Reflect.construct(target, [[workerPatch, ...(parts as ReadonlyArray<string>)], args[1]])
+                parts.some(
+                  (part) =>
+                    typeof part === 'string' &&
+                    /\b(navigator|postMessage|onmessage|importScripts|addEventListener|WebAssembly)\b/.test(part)
+                )
+
+              if (Array.isArray(parts) && (isJavaScriptBlob || looksLikeWorkerSource)) {
+                return Reflect.construct(target, [[workerPatch, ...(parts as Array<BlobPart>)], args[1]])
               }
             } catch {
               /* ignore - fall through to an unmodified blob */
