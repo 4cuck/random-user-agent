@@ -86,6 +86,36 @@ export const highEntropyClientHintHeaders: ReadonlyArray<string> = [
 ]
 
 /**
+ * Returns the user agent string exactly as JavaScript reports it (`navigator.userAgent`). Modern Chromium-based
+ * browsers freeze the version tokens in the UA string to `major.0.0.0`, exposing the full build only via Client Hints.
+ * The injected script applies the same reduction, so the HTTP `User-Agent` header must use this normalized value too -
+ * otherwise detectors that compare `navigator.userAgent` (and parsers like ua-parser-js / platform.js running on it)
+ * against the request header (e.g. webbrowsertools.com "UA Header" method) see a mismatch and reveal the spoof. This
+ * mirrors the reduction in `src/entrypoints/content/inject.ts` and must stay in sync with it.
+ */
+export const normalizeUserAgentForJS = (ua: ReadonlyUserAgentState): string => {
+  switch (ua.browser) {
+    case 'chrome':
+    case 'opera':
+    case 'edge':
+    case 'brave': {
+      const reduce = (full: string, major: number): string =>
+        `${major}${'.0'.repeat(Math.max(0, full.split('.').length - 1))}`
+
+      let masked = ua.userAgent.replaceAll(ua.version.browser.full, reduce(ua.version.browser.full, ua.version.browser.major))
+
+      if (ua.version.underHood?.full) {
+        masked = masked.replaceAll(ua.version.underHood.full, reduce(ua.version.underHood.full, ua.version.underHood.major))
+      }
+
+      return masked
+    }
+  }
+
+  return ua.userAgent
+}
+
+/**
  * Enables the request headers modification.
  *
  * The filter parameter is optional and can be used to apply the rules only to specific domains.
@@ -306,7 +336,8 @@ export async function setRequestHeaders(
           {
             operation: HeaderOperation.SET,
             header: HeaderNames.USER_AGENT,
-            value: ua.userAgent,
+            // must equal the JS `navigator.userAgent` the injected script reports (reduced major.0.0.0 on Chromium)
+            value: normalizeUserAgentForJS(ua),
           },
         ],
       },

@@ -393,6 +393,11 @@ import type { DeepWriteable } from '~/types'
       }
     }
 
+    // Capture the REAL navigator values BEFORE patching. They never leave this closure - they are only used to scrub
+    // the real user agent out of any same-origin response body that echoes it back (see the response scrubber below).
+    const realUserAgent = navigator.userAgent
+    const realAppVersion = navigator.appVersion
+
     // patch the current navigator object
     patchNavigator(navigator)
 
@@ -460,10 +465,180 @@ import type { DeepWriteable } from '~/types'
       }
     }
 
+    // Universal defense against "UA echo" leaks (e.g. webbrowsertools.com "[aggressive] UA Header" method). A service
+    // worker - which has its OWN navigator we cannot patch, and whose `fetch` event fires BEFORE declarativeNetRequest
+    // rewrites headers - replies to a same-origin request with `request.headers.get('user-agent')`, i.e. the REAL user
+    // agent. The browser also forbids overriding the `User-Agent` request header from JS, so we cannot change what the
+    // worker reads. Instead we scrub the real values out of the response BODY the page receives, so any worker/server
+    // that echoes the real user agent only ever exposes the spoofed one. Only bodies that literally contain the real
+    // user agent are rewritten, so legitimate data is left untouched. This works against ALL service workers without
+    // disabling them.
+    if (realUserAgent && realUserAgent !== spoofedUserAgent) {
+      try {
+        const scrub = (text: string): string => {
+          let out = text.split(realUserAgent).join(spoofedUserAgent)
+
+          if (realAppVersion && realAppVersion !== spoofedAppVersion) {
+            out = out.split(realAppVersion).join(spoofedAppVersion)
+          }
+
+          return out
+        }
+
+        const leaks = (text: string): boolean =>
+          text.includes(realUserAgent) ||
+          (!!realAppVersion && realAppVersion !== spoofedAppVersion && text.includes(realAppVersion))
+
+        const isScrubbable = (resp: Response): boolean => {
+          if (resp.type === 'opaque' || resp.type === 'opaqueredirect' || !resp.body || resp.bodyUsed) {
+            return false
+          }
+
+          const contentType = (resp.headers.get('content-type') || '').toLowerCase()
+
+          if (contentType.includes('event-stream')) {
+            return false // never buffer Server-Sent Events (they may never end)
+          }
+
+          const length = parseInt(resp.headers.get('content-length') || '0', 10)
+
+          if (length > 512 * 1024) {
+            return false // skip large bodies to avoid latency / memory cost
+          }
+
+          return contentType === '' || /text|json|xml|javascript|ecmascript|html/.test(contentType)
+        }
+
+        const realFetch = self.fetch
+
+        if (typeof realFetch === 'function') {
+          self.fetch = new Proxy(realFetch, {
+            apply(target, thisArg, args): Promise<Response> {
+              const call = Reflect.apply(target, thisArg, args) as Promise<Response>
+
+              return call.then((resp) => {
+                try {
+                  if (!resp || !isScrubbable(resp)) {
+                    return resp
+                  }
+
+                  return resp
+                    .clone()
+                    .text()
+                    .then((text) => {
+                      if (!text || !leaks(text)) {
+                        return resp
+                      }
+
+                      const headers = new Headers(resp.headers)
+                      headers.delete('content-length') // the scrubbed body length differs
+
+                      const scrubbed = new Response(scrub(text), {
+                        status: resp.status,
+                        statusText: resp.statusText,
+                        headers,
+                      })
+
+                      try {
+                        Object.defineProperty(scrubbed, 'url', { value: resp.url })
+                      } catch {
+                        /* `url` is best-effort */
+                      }
+
+                      return scrubbed
+                    })
+                    .catch(() => resp)
+                } catch {
+                  return resp
+                }
+              })
+            },
+          })
+        }
+
+        // XHR: the response getters are read-only, so wrap them on the prototype and scrub on read (guarded so only
+        // bodies that actually contain the real user agent are rewritten).
+        const xhrProto = XMLHttpRequest.prototype
+        ;(['responseText', 'response'] as const).forEach((prop) => {
+          const descriptor = Object.getOwnPropertyDescriptor(xhrProto, prop)
+
+          if (!descriptor || typeof descriptor.get !== 'function' || !descriptor.configurable) {
+            return
+          }
+
+          const nativeGet = descriptor.get as () => unknown
+
+          Object.defineProperty(xhrProto, prop, {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get(this: XMLHttpRequest): unknown {
+              const value = nativeGet.call(this)
+
+              return typeof value === 'string' && leaks(value) ? scrub(value) : value
+            },
+          })
+        })
+      } catch (e) {
+        console.warn('💣 RUA: an error occurred while installing the UA-echo response scrubber', e)
+      }
+    }
+
     // patch iframes navigators
     {
       // currently existing
       Array(...document.getElementsByTagName('iframe')).forEach(patchNavigatorInIframe)
+
+      // Aggressive detectors (e.g. webbrowsertools.com "iframe navigator.userAgent" / "iframe navigator.appVersion"
+      // methods) create a fresh iframe and read `iframe.contentWindow.navigator` (or `contentDocument.defaultView`)
+      // directly - sometimes via innerHTML / insertAdjacentHTML, which bypass appendChild/insertBefore/append/prepend.
+      // Patch the prototype accessors so the child frame's navigator is spoofed on EVERY access path, closing the
+      // iframe leak that ua-parser-js / platform.js would otherwise read the real user agent from.
+      const patchedWindows = new WeakSet<Window>()
+      const patchWindowNavigator = (win: Window | null): void => {
+        try {
+          if (win && typeof win === 'object' && !patchedWindows.has(win) && win.navigator) {
+            patchedWindows.add(win)
+            patchNavigator(win.navigator)
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (_) {
+          // cross-origin frames are inaccessible from here - nothing leaks from them, so nothing to patch
+        }
+      }
+
+      const patchIframeAccessor = (prop: 'contentWindow' | 'contentDocument'): void => {
+        try {
+          const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, prop)
+
+          if (!descriptor || typeof descriptor.get !== 'function' || !descriptor.configurable) {
+            return
+          }
+
+          const nativeGet = descriptor.get
+
+          Object.defineProperty(HTMLIFrameElement.prototype, prop, {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get(this: HTMLIFrameElement): Window | Document | null {
+              const result = nativeGet.call(this) as Window | Document | null
+
+              if (prop === 'contentWindow') {
+                patchWindowNavigator(result as Window | null)
+              } else {
+                patchWindowNavigator((result as Document | null)?.defaultView ?? null)
+              }
+
+              return result
+            },
+          })
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (_) {
+          // could not redefine the accessor - fall back to the DOM-method proxies / observer below
+        }
+      }
+
+      patchIframeAccessor('contentWindow')
+      patchIframeAccessor('contentDocument')
 
       const overloadOpts: Parameters<typeof overload>[3] = { configurable: true, force: true, writable: true }
 
