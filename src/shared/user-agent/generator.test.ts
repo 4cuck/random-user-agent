@@ -309,6 +309,9 @@ describe('generate', () => {
         expect(result.userAgent).contains('Chrome/')
         expect(result.userAgent).contains('Edg/')
         expect(result.userAgent).contains('AppleWebKit/')
+        // the Chromium (Chrome/) major must always equal the Edge (Edg/) major
+        expect(result.userAgent.match(/Chrome\/(\d+)/)?.[1]).toBe(result.userAgent.match(/Edg\/(\d+)/)?.[1])
+        expect(result.version.underHood?.major).toBe(result.version.browser.major)
       })
 
       test('specific', () => {
@@ -337,6 +340,9 @@ describe('generate', () => {
         expect(result.userAgent).contains('Chrome/')
         expect(result.userAgent).contains('Edg/')
         expect(result.userAgent).contains('AppleWebKit/')
+        // the Chromium (Chrome/) major must always equal the Edge (Edg/) major
+        expect(result.userAgent.match(/Chrome\/(\d+)/)?.[1]).toBe(result.userAgent.match(/Edg\/(\d+)/)?.[1])
+        expect(result.version.underHood?.major).toBe(result.version.browser.major)
       })
 
       test('specific', () => {

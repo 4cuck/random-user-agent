@@ -394,10 +394,16 @@ export default function generate(
     }
 
     case 'edge_win': {
-      const [chromeMajor, chromeFull] = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)
       const [edgeMajor, edgeFull] = opt?.version
         ? [extractMajor(opt.version), opt.version]
         : edgeVersion(opt?.maxMajor, opt?.majorDelta)
+      // Edge always runs on the Chromium with the SAME major (e.g. Edge 148 -> Chromium 148), so the `Chrome/` and
+      // `Edg/` tokens must share the major. Keep Chromium's own build numbers but force its major to the Edge major.
+      const chromeMajor = edgeMajor
+      const chromeFull = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)[1].replace(
+        /^\d+/,
+        String(edgeMajor)
+      )
 
       return {
         userAgent: generators.edge.windows({ chromeVersion: chromeFull, edgeVersion: edgeFull }),
@@ -409,10 +415,16 @@ export default function generate(
     }
 
     case 'edge_mac': {
-      const [chromeMajor, chromeFull] = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)
       const [edgeMajor, edgeFull] = opt?.version
         ? [extractMajor(opt.version), opt.version]
         : edgeVersion(opt?.maxMajor, opt?.majorDelta)
+      // Edge always runs on the Chromium with the SAME major (e.g. Edge 148 -> Chromium 148), so the `Chrome/` and
+      // `Edg/` tokens must share the major. Keep Chromium's own build numbers but force its major to the Edge major.
+      const chromeMajor = edgeMajor
+      const chromeFull = chromeVersion(opt?.underHoodMaxMajor, opt?.underHoodMajorDelta)[1].replace(
+        /^\d+/,
+        String(edgeMajor)
+      )
 
       return {
         userAgent: generators.edge.mac({ chromeVersion: chromeFull, edgeVersion: edgeFull }),
