@@ -60,7 +60,7 @@ const generators: {
 
     windows: ({ chromeVersion }) => {
       return new RandExp(
-        /Mozilla\/5\.0 \(Windows NT ((6\.(1|1|1|2|3))|10\.0|10\.0|10\.0|10\.0|10\.0|10\.0); (Win64|Win64|Win64|WOW64); x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/__CHROME_VERSION__ Safari\/537\.36/
+        /Mozilla\/5\.0 \(Windows NT 10\.0; (Win64|Win64|Win64|WOW64); x64\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/__CHROME_VERSION__ Safari\/537\.36/
       )
         .gen()
         .replace(/__CHROME_VERSION__/g, reduceVersion(chromeVersion))
@@ -97,7 +97,7 @@ const generators: {
 
     windows: ({ firefoxVersion }) => {
       return new RandExp(
-        /Mozilla\/5\.0 \(Windows NT ((6\.(1|1|1|2|3))|10\.0|10\.0|10\.0|10\.0|10\.0|10\.0); (Win64|Win64|Win64|WOW64); x64; rv:__FF_VERSION__\) Gecko\/20100101 Firefox\/__FF_VERSION__(||\/[a-zA-Z0-9]{9,16}(-\d{2}|))/
+        /Mozilla\/5\.0 \(Windows NT 10\.0; (Win64|Win64|Win64|WOW64); x64; rv:__FF_VERSION__\) Gecko\/20100101 Firefox\/__FF_VERSION__(||\/[a-zA-Z0-9]{9,16}(-\d{2}|))/
       )
         .gen()
         .replace(/__FF_VERSION__/g, firefoxVersion)
