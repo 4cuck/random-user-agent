@@ -798,8 +798,11 @@ import type { DeepWriteable } from '~/types'
           }
         }
 
-        patchMessageTarget(typeof Worker !== 'undefined' ? Worker.prototype : null)
-        patchMessageTarget(typeof MessagePort !== 'undefined' ? MessagePort.prototype : null)
+        // Only scrub SERVICE worker messages (CreepJS's primary worker scope). We deliberately do NOT tamper
+        // `Worker.prototype` or `MessagePort.prototype`: Cloudflare Turnstile spawns a dedicated blob Worker and is
+        // extremely sensitive to any Worker / MessageChannel tampering, and the Blob patch above already re-spoofs that
+        // worker's navigator from the inside - so scrubbing dedicated/shared worker messages is unnecessary here and
+        // only broke the Turnstile challenge. Service workers (which Turnstile does not use) are still scrubbed.
         patchMessageTarget(typeof ServiceWorkerContainer !== 'undefined' ? ServiceWorkerContainer.prototype : null)
       } catch (e) {
         console.warn('💣 RUA: an error occurred while installing the worker-message scrubber', e)
