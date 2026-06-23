@@ -1,1 +1,1 @@
-export { default as Timer } from './timer'
+export { default as Timer, alarmHandlers } from './timer'

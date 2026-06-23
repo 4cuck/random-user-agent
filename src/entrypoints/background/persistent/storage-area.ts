@@ -73,18 +73,41 @@ export default class<TState extends Record<string, unknown> = Record<string, unk
    * @throws {Error} If the data cannot be retrieved.
    */
   async get(): Promise<TState | undefined> {
-    const items = await (await this.getStorage()).get(this.key)
-    const lastError = chrome.runtime.lastError
+    const storage = await this.getStorage()
 
-    if (lastError) {
-      throw new Error(lastError.message)
+    try {
+      const items = await storage.get(this.key)
+      const lastError = chrome.runtime.lastError // read once (it is a getter that may clear after access)
+
+      if (lastError) {
+        throw new Error(lastError.message)
+      }
+
+      if (items && this.key in items) {
+        return items[this.key] as TState
+      }
+
+      return undefined // storage does not contain expected data
+    } catch (err) {
+      // The primary area (e.g. a flaky / over-quota `sync` area) failed AFTER it had been chosen by getStorage().
+      // Fall back to the secondary area instead of letting the error bubble up - an unguarded throw here aborts the
+      // whole service-worker bootstrap, leaving the extension half-initialized until it is toggled off/on.
+      if (this.areaName.fallback && this.areaName.fallback !== this.areaName.main) {
+        const fallback = this.areaName.fallback === 'sync' ? chrome.storage.sync : chrome.storage.local
+        const items = await fallback.get(this.key)
+        const lastError = chrome.runtime.lastError
+
+        if (lastError) {
+          throw new Error(lastError.message)
+        }
+
+        this.storage = fallback // prefer the working area for subsequent operations
+
+        return items && this.key in items ? (items[this.key] as TState) : undefined
+      }
+
+      throw err
     }
-
-    if (items && this.key in items) {
-      return items[this.key] as TState
-    }
-
-    return undefined // storage does not contain expected data
   }
 
   /**

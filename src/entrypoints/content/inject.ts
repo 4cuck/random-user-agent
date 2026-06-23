@@ -11,9 +11,11 @@ import type { DeepWriteable } from '~/types'
       return
     }
 
+    // permanent (per-document) run-once marker. A 1-second self-clearing guard could be bypassed when the two
+    // deliveries of this script (the MAIN-world registered content script + the <script> tag injected by content.js)
+    // land more than a second apart on a slow load, causing it to run twice and wrap the DOM/prototype proxies in
+    // nested proxies. Leaving the marker set guarantees at-most-once execution per document.
     ds[key] = flag
-
-    setTimeout(() => delete ds[key], 1000) // remove the dataset attribute after 1 second
   }
 
   /** Extracts the payload from the performance entries (which are sent by the background script) */

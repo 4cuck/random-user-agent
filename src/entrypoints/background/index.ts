@@ -11,7 +11,7 @@ import {
   StorageArea,
   LatestBrowserVersions,
 } from './persistent'
-import { Timer } from './timer'
+import { Timer, alarmHandlers } from './timer'
 import { setExtensionIcon, setExtensionTitle } from './ui'
 
 /** Debug logging */
@@ -20,6 +20,75 @@ const debug = (msg: string, ...args: Array<unknown>): void => console.debug(`%c�
 const m2s = (millis: number): number => Math.round(millis / 1000)
 /** The high-entropy Client Hint header names (lowercased), used to filter `Accept-CH` directives. */
 const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHeaders.map((h) => h.toLowerCase()))
+
+// ── MV3 listener registration ───────────────────────────────────────────────────────────────────────────────────
+// In Manifest V3 the service worker is torn down when idle and RE-EVALUATED on every event (message, command, alarm,
+// ...). Event listeners must be added SYNCHRONOUSLY during this top-level evaluation - a listener added later (after
+// an `await`, as the bootstrap below used to do) is not present when Chrome dispatches the very event that woke the
+// worker, so that event is dropped. That is the root cause of "the popup is dead until I toggle the extension off/on".
+//
+// The listener bodies need state that is built asynchronously in the bootstrap, so they await this readiness gate
+// (which is opened once the bootstrap has wired everything up) before dispatching.
+let api: HandlersMap | undefined
+let resolveReady!: () => void
+const ready: Promise<void> = new Promise((resolve) => {
+  resolveReady = resolve
+})
+
+/** Resolves with the handler map once the bootstrap is ready (throws if the bootstrap failed before it was built). */
+const whenReady = async (): Promise<HandlersMap> => {
+  await ready
+
+  if (!api) {
+    throw new Error('background service worker failed to initialize')
+  }
+
+  return api
+}
+
+// messages from the popup / options / onboarding / content scripts (the entire UI talks to the background via this)
+listenRuntime({
+  ping: (...args) => args,
+  version: () => chrome.runtime.getManifest().version,
+  currentUserAgent: async () => (await whenReady()).currentUserAgent(),
+  renewUserAgent: async () => (await whenReady()).renewUserAgent(),
+  settings: async () => (await whenReady()).settings(),
+  updateSettings: async (upd) => (await whenReady()).updateSettings(upd),
+  isApplicableForDomain: async (domain) => (await whenReady()).isApplicableForDomain(domain),
+  updateRemoteListNow: async (clear) => (await whenReady()).updateRemoteListNow(clear),
+  delegateClientHints: async (delegations) => (await whenReady()).delegateClientHints(delegations),
+})
+
+// keyboard shortcuts (e.g. Ctrl+Shift+U to renew the user-agent)
+registerHotkeys({
+  renewUserAgent: async () => {
+    await (await whenReady()).renewUserAgent()
+  },
+})
+
+// a single dispatcher for all alarms, routed through the timer registry (each Timer registers its handler there)
+chrome.alarms.onAlarm.addListener((alarm): void => {
+  void (async (): Promise<void> => {
+    await ready
+
+    alarmHandlers.get(alarm.name)?.()
+  })()
+})
+
+// renew the user-agent on a REAL browser startup (not on every service-worker wake) when the user opted in
+chrome.runtime.onStartup?.addListener((): void => {
+  void (async (): Promise<void> => {
+    try {
+      const handlers = await whenReady()
+
+      if ((await handlers.settings()).renew.onStartup) {
+        await handlers.renewUserAgent()
+      }
+    } catch (err) {
+      debug('on-startup renew error', err)
+    }
+  })()
+})
 
 // run the background script
 ;(async () => {
@@ -102,6 +171,11 @@ const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHea
       }
     },
   }
+
+  // publish the handler map so the synchronously-registered listeners above can dispatch into it. Do this BEFORE the
+  // remaining (timer / network / rule) setup so the UI keeps working even if a later step fails; the readiness gate
+  // itself is opened only at the very end, once everything is wired up.
+  api = handlers
 
   // create a timer to renew the user-agent automatically
   const userAgentRenewTimer = new Timer('renew-user-agent', m2s(initSettings.renew.intervalMillis), async () => {
@@ -303,8 +377,11 @@ const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHea
     }
   }
 
-  // renew the user-agent on startup, if the feature is enabled or the user-agent is missing (first run?)
-  if (initSettings.renew.onStartup || !(await currentUserAgent.get())) {
+  // generate the INITIAL user-agent only when none is stored yet (first run). The previous `renew.onStartup ||`
+  // condition regenerated it on EVERY service-worker wake (not just at browser startup), churning the user-agent and
+  // the request-header rules constantly - a source of erratic behaviour. Real browser-startup renewal is handled by
+  // the chrome.runtime.onStartup listener registered synchronously above.
+  if (!(await currentUserAgent.get())) {
     await renewUserAgent(settings, currentUserAgent, remoteUserAgentList, hostOS, latestBrowserVersions)
   }
 
@@ -322,17 +399,24 @@ const highEntropyHintSet: ReadonlySet<string> = new Set(highEntropyClientHintHea
     await latestBrowserVersionsTimer.start()
   }
 
-  // register hotkeys for the extension commands, such as renewing the user-agent
-  registerHotkeys({
-    renewUserAgent: async () => {
-      await renewUserAgent(settings, currentUserAgent, remoteUserAgentList, hostOS, latestBrowserVersions)
-    },
-  })
+  // ensure the request-header (declarativeNetRequest) rules reflect the persisted settings + user-agent on every
+  // startup. These rules persist across restarts, but previously they were also re-applied as a side effect of the
+  // on-startup renewal we no longer perform on every wake - so re-assert them explicitly to guarantee spoofing is
+  // active after a cold start.
+  await reloadRequestHeaders(initSettings, await currentUserAgent.get(), await acceptClientHints.getAll()).catch(
+    (err: unknown): void => debug('request header rules error on startup', err)
+  )
 
   // set the extension icon state on startup
   await setExtensionIcon(initSettings.enabled)
 
-  listenRuntime(handlers)
+  // everything is wired up: open the readiness gate so the synchronously-registered listeners start dispatching
+  // (note: the onMessage and onCommand listeners are registered at top-level evaluation, NOT here, so they survive
+  // a cold wake; see the top of this file)
+  resolveReady()
 })().catch((error: unknown): void => {
-  throw error
+  // never leave the readiness gate closed - the synchronously-registered listeners must still respond (with whatever
+  // state was published) instead of hanging, and an init failure must not surface as an unhandled rejection
+  debug('bootstrap error', error)
+  resolveReady()
 })
