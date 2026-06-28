@@ -15,8 +15,25 @@ const inject: RegisteredContentScript = { ...common, id: 'inject', js: [__UNIQUE
 
 /** Register the content scripts */
 export async function registerContentScripts() {
-  // first, unregister (probably) previously registered content scripts
-  await chrome.scripting.unregisterContentScripts()
+  // Registered content scripts persist across service-worker restarts, so on a normal (cold) wake they are already
+  // present. Re-registering on every wake is wasteful, and the unregister→register sequence below briefly leaves
+  // pages with NO content scripts. So if our scripts are already registered, there is nothing to do.
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts()
+
+    if (existing.some((script) => script.id === content.id)) {
+      return
+    }
+  } catch {
+    // ignore - fall through and (re)register below
+  }
+
+  // unregister any stale/partial registrations first (no-op on a fresh install)
+  try {
+    await chrome.scripting.unregisterContentScripts()
+  } catch {
+    // ignore - nothing to unregister (or a transient error); the registration below is what matters
+  }
 
   try {
     await chrome.scripting.registerContentScripts([
@@ -33,9 +50,22 @@ export async function registerContentScripts() {
       // so we need to register the content scripts without the "world" property
       //
       // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/scripting/RegisteredContentScript#browser_compatibility
-      return await chrome.scripting.registerContentScripts([content])
+      try {
+        await chrome.scripting.registerContentScripts([content])
+      } catch {
+        // ignore - do not abort the bootstrap on a registration hiccup
+      }
+
+      return
     }
 
-    throw err
+    // a concurrent wake may have registered them already - treat a duplicate-id error as success
+    if (err instanceof Error && err.message.toLowerCase().includes('duplicate')) {
+      return
+    }
+
+    // never rethrow: a content-script registration hiccup must not abort the rest of the service-worker bootstrap
+    // (which would leave the message/command/alarm listeners unregistered until the user toggles the extension)
+    console.warn('🧨 RUA: content script registration failed', err)
   }
 }

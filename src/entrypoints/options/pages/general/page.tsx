@@ -2,8 +2,8 @@ import React, { useEffect, useId, useState } from 'react'
 import { i18n } from '~/i18n'
 import { send } from '~/shared/messaging'
 import { Button, Grid, Input, Switch } from '../../shared/components'
-import { debug } from '../../shared'
-import { useTitle, useSaveSettings } from '../../shared/hooks'
+import { debug, throwIfErr } from '../../shared'
+import { useTitle, useSaveSettings, useRenewUserAgent } from '../../shared/hooks'
 
 /** Converts a multiline text to a list of strings. */
 const textToList = (text: string): string[] =>
@@ -30,6 +30,7 @@ export default function General(): React.JSX.Element {
   useTitle(i18n('general_settings'))
 
   const saveSettings = useSaveSettings()
+  const renewUserAgent = useRenewUserAgent()
 
   const [enabled, setEnabled, enabledId] = [...useState<boolean>(), useId()]
   const [renewEnabled, setRenewEnabled] = useState<boolean>()
@@ -184,6 +185,12 @@ export default function General(): React.JSX.Element {
                   { customUseragent: { enabled: customUAEnabled, list: textToList(text) } },
                   delayFor.textarea
                 )
+
+                // apply immediately: regenerate the active user-agent from the updated custom list, so the override
+                // takes effect without having to press "get new user-agent" (only when the custom list is active)
+                if (customUAEnabled) {
+                  await renewUserAgent().catch(throwIfErr)
+                }
               }}
             />
           </Grid.Column>
@@ -194,6 +201,9 @@ export default function General(): React.JSX.Element {
               onChange={async (v) => {
                 setCustomUAEnabled(v)
                 await saveSettings({ customUseragent: { enabled: v } }, delayFor.switch)
+
+                // apply immediately: toggling the custom user-agent changes which source the active UA comes from
+                await renewUserAgent().catch(throwIfErr)
               }}
             />
           </Grid.Column>
@@ -414,7 +424,14 @@ export default function General(): React.JSX.Element {
 
                     return updateRemoteListNow
                   })
-                  .then((res) => setRemoteListUpdateStatus(`📜 ${res.gotListSize.toLocaleString()}`))
+                  .then((res) => {
+                    setRemoteListUpdateStatus(`📜 ${res.gotListSize.toLocaleString()}`)
+
+                    // apply immediately: pick a user-agent from the freshly fetched list (when the list is active)
+                    if (remoteUAListEnabled) {
+                      renewUserAgent().catch(throwIfErr)
+                    }
+                  })
                   .catch((err) => {
                     setRemoteListUpdateStatus('🛑 Failed to update')
                     debug('remote list update failed', err)
@@ -431,6 +448,9 @@ export default function General(): React.JSX.Element {
               onChange={async (v) => {
                 setRemoteUAListEnabled(v)
                 await saveSettings({ remoteUseragentList: { enabled: v } }, delayFor.switch)
+
+                // apply immediately: toggling the remote list changes which source the active UA comes from
+                await renewUserAgent().catch(throwIfErr)
               }}
             />
           </Grid.Column>

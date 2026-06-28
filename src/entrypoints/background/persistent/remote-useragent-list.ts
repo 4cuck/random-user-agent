@@ -101,7 +101,9 @@ export default class {
   async get(random: boolean): Promise<Readonly<string> | Readonly<Array<string>> | undefined> {
     const state = await this.storage.get()
 
-    if (state?.list.length) {
+    // guard with Array.isArray: legacy / partially-written storage may hold an object without a `list` array, and
+    // `state.list.length` on it would throw a TypeError that aborts the caller (and, on the bootstrap path, init)
+    if (Array.isArray(state?.list) && state.list.length) {
       return Object.freeze(random ? state.list[Math.floor(Math.random() * state.list.length)] : state.list)
     }
   }

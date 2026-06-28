@@ -11,9 +11,11 @@ import type { DeepWriteable } from '~/types'
       return
     }
 
+    // permanent (per-document) run-once marker. A 1-second self-clearing guard could be bypassed when the two
+    // deliveries of this script (the MAIN-world registered content script + the <script> tag injected by content.js)
+    // land more than a second apart on a slow load, causing it to run twice and wrap the DOM/prototype proxies in
+    // nested proxies. Leaving the marker set guarantees at-most-once execution per document.
     ds[key] = flag
-
-    setTimeout(() => delete ds[key], 1000) // remove the dataset attribute after 1 second
   }
 
   /** Extracts the payload from the performance entries (which are sent by the background script) */
@@ -41,6 +43,67 @@ import type { DeepWriteable } from '~/types'
     }
 
     return false
+  }
+
+  /** Overloads the object property with the new value. */
+  const overload = <T>(
+    t: T,
+    prop: T extends Navigator ? keyof T | 'oscpu' | 'brave' : keyof T,
+    value: unknown,
+    options: { force?: boolean; configurable?: boolean; writable?: boolean } = {
+      force: false,
+      configurable: true,
+      writable: false,
+    }
+  ): void => {
+    const opts = { force: false, configurable: true, writable: false, ...options }
+    let target: T = t
+
+    try {
+      while (target !== null) {
+        const descriptor = Object.getOwnPropertyDescriptor(target, prop)
+
+        // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/defineProperty
+        if (descriptor && descriptor.configurable) {
+          const newAttributes: PropertyDescriptor = { configurable: opts.configurable, enumerable: true }
+
+          // respect the original value getting method
+          if (descriptor.get) {
+            // Wrap the NATIVE getter in a Proxy of it (not a plain `() => value`) so `Function.prototype.toString`
+            // still reports `[native code]` and a fingerprinter (CreepJS) sees no navigator / userAgentData "lie". The
+            // apply trap calls the native getter first to reproduce its this-brand check (throwing on an invalid
+            // receiver such as the bare prototype) before returning the spoofed value. This keeps the v4.7.2 spoof -
+            // which passes Cloudflare Turnstile - intact (it never replaces `window.navigator` or the real objects),
+            // while making it undetectable to CreepJS.
+            const nativeGet = descriptor.get
+            newAttributes.get = new Proxy(nativeGet, {
+              apply(getterTarget, thisArg, getterArgs): unknown {
+                Reflect.apply(getterTarget, thisArg, getterArgs)
+
+                return value
+              },
+            })
+          } else {
+            newAttributes.value = value
+            newAttributes.writable = opts.writable
+          }
+
+          Object.defineProperty(target, prop, newAttributes)
+        } else if (opts.force && Object.getPrototypeOf(t) === Object.getPrototypeOf(target)) {
+          Object.defineProperty(target, prop, {
+            value,
+            configurable: opts.configurable,
+            enumerable: true,
+            writable: opts.writable,
+          })
+        }
+
+        target = Object.getPrototypeOf(target)
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_) {
+      // do nothing
+    }
   }
 
   try {
@@ -119,242 +182,192 @@ import type { DeepWriteable } from '~/types'
       return undefined
     })()
 
-    // CreepJS-resistant navigator spoofing.
-    //
-    // Instead of redefining getters on `Navigator.prototype` (detected via the clean `Function.prototype.toString`)
-    // or adding own properties to the navigator instance (detected by the dedicated navigator/screen
-    // "failed undefined properties" check), we REPLACE `window.navigator` with a Proxy over the real navigator. The
-    // prototype keeps its native getters and the instance reports no own properties, so a fingerprinter (e.g. CreepJS,
-    // see its src/lies) cannot flag the spoof as a "lie", yet every read returns the spoofed value.
-    const spoofedNavigatorWindows = new WeakSet<object>()
+    /**
+     * Function to patch the navigator object.
+     *
+     * @link https://developer.mozilla.org/en-US/docs/Web/API/Navigator
+     */
+    const patchNavigator = (n: Navigator): void => {
+      if (n === null || typeof n !== 'object' || !('userAgent' in n)) {
+        return
+      }
 
-    const spoofedVendor = ((): string | undefined => {
+      // to test, execute in the console: `console.log(navigator.userAgent)`
+      overload(n, 'userAgent', spoofedUserAgent)
+
+      // to test, execute in the console: `console.log(navigator.appVersion)`
+      overload(n, 'appVersion', spoofedAppVersion)
+
+      // to test, execute in the console: `console.log(navigator.platform, navigator.oscpu)`
+      if (spoofedPlatform) {
+        overload(n, 'platform', spoofedPlatform)
+      }
+
+      // oscpu is exposed ONLY by Firefox. Override it WITHOUT `force`, so a Firefox engine reports the spoofed value
+      // (or `undefined`, to hide the real one when spoofing a non-Firefox UA), while on Chromium - which has no native
+      // oscpu getter - nothing is added. Force-adding an own `oscpu: undefined` is exactly the own-property anomaly that
+      // CreepJS flags as a navigator lie, so we must not do that.
+      {
+        const oscpu: string | undefined =
+          payload.current.browser !== 'firefox'
+            ? undefined
+            : payload.current.os === 'windows'
+              ? 'Windows NT; Win64; x64'
+              : payload.current.os === 'linux'
+                ? 'Linux x86_64'
+                : payload.current.os === 'android'
+                  ? 'Linux armv8l'
+                  : 'Mac OS X'
+
+        overload(n, 'oscpu', oscpu)
+      }
+
+      /**
+       * @link https://developer.mozilla.org/en-US/docs/Web/API/Navigator/maxTouchPoints
+       */
+      switch (payload.current.os) {
+        case 'android':
+        case 'iOS':
+          overload(n, 'maxTouchPoints', n.maxTouchPoints || 10)
+          break
+      }
+
+      // to test, execute in the console: `console.log(navigator.vendor)`
       switch (payload.current.browser) {
         case 'chrome':
         case 'opera':
-        case 'edge':
-        case 'brave':
-          return 'Google Inc.'
-        case 'firefox':
-          return '' // firefox always with an empty vendor
-        case 'safari':
-          return 'Apple Computer, Inc.'
-      }
+        case 'edge': // blink engine
+        case 'brave': // blink engine
+          overload(n, 'vendor', 'Google Inc.')
+          break
 
-      return undefined
-    })()
+        case 'firefox': // gecko engine
+          overload(n, 'vendor', '') // firefox always with an empty vendor
+          break
 
-    const spoofedOscpu = ((): string | undefined => {
-      if (payload.current.browser !== 'firefox') {
-        return undefined // only firefox exposes navigator.oscpu
-      }
+        case 'safari': // webkit engine
+          overload(n, 'vendor', 'Apple Computer, Inc.')
+          break
 
-      switch (payload.current.os) {
-        case 'windows':
-          return 'Windows NT; Win64; x64'
-        case 'linux':
-          return 'Linux x86_64'
-        case 'android':
-          return 'Linux armv8l'
         default:
-          return 'Mac OS X'
-      }
-    })()
-
-    const isMobileOS = payload.current.os === 'android' || payload.current.os === 'iOS'
-
-    /** Builds the spoofed `userAgentData` object (undefined for firefox / safari), wrapping the real one. */
-    const buildSpoofedUserAgentData = (realNav: Navigator): NavigatorUAData | undefined => {
-      if (payload.current.browser === 'firefox' || payload.current.browser === 'safari') {
-        return undefined
+          overload(n, 'vendor', undefined)
       }
 
-      const realUAData = (realNav as Navigator & { userAgentData?: NavigatorUAData }).userAgentData
-      const majorBrands = (): Array<{ brand: string; version: string }> =>
-        payload.brands.major.map(({ brand, version }) => ({ brand, version }))
-      const fullBrands = (): Array<{ brand: string; version: string }> =>
-        payload.brands.full.map(({ brand, version }) => ({ brand, version }))
-      const toJSON = (): UALowEntropyJSON => ({
-        brands: majorBrands(),
-        mobile: payload.isMobile,
-        platform: payload.platform,
-      })
-      const merge = (values: Partial<UADataValues>): UADataValues => {
-        const data: DeepWriteable<UADataValues> = {
-          ...values,
-          brands: majorBrands(),
-          fullVersionList: fullBrands(),
-          mobile: payload.isMobile,
-          model: payload.model || '',
-          platform: payload.platform,
-          platformVersion: payload.platformVersion,
-          architecture: payload.architecture,
-          bitness: payload.bitness,
-        }
-
-        if (payload.formFactors.length) {
-          ;(data as unknown as { formFactors: ReadonlyArray<string> }).formFactors = payload.formFactors
-        }
-
-        if (values && 'uaFullVersion' in values) {
-          data.uaFullVersion = payload.fullVersion || payload.current.version.browser.full
-        }
-
-        return data
-      }
-      const getHighEntropyValues = (hints?: ReadonlyArray<string>): Promise<UADataValues> => {
-        const realGetter =
-          realUAData && typeof realUAData.getHighEntropyValues === 'function'
-            ? realUAData.getHighEntropyValues.bind(realUAData)
-            : undefined
-
-        return (realGetter ? realGetter([...(hints ?? [])]) : Promise.resolve({} as UADataValues))
-          .then((values) => merge(values || {}))
-          .catch(() => merge({}))
+      // Brave exposes a `navigator.brave` object with an async `isBrave()` method - replicate it when spoofing
+      // Brave so that sites relying on it can still detect "Brave"
+      if (payload.current.browser === 'brave') {
+        overload(
+          n,
+          'brave',
+          Object.freeze({ isBrave: (): Promise<boolean> => Promise.resolve(true) }),
+          { force: true, configurable: true }
+        )
       }
 
-      const overrides: Record<string, unknown> = {
-        brands: majorBrands(),
-        mobile: payload.isMobile,
-        platform: payload.platform,
-        toJSON,
-        getHighEntropyValues,
-      }
+      /**
+       * @link https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgentData#browser_compatibility
+       * @link https://chromium.googlesource.com/chromium/src/+/refs/heads/main/third_party/blink/renderer/core/frame/navigator_ua_data.cc
+       */
+      switch (payload.current.browser) {
+        case 'firefox':
+        case 'safari':
+          // FireFox and Safari does not support the `userAgentData` property yet
+          overload(n, 'userAgentData', undefined, { force: true })
+          break
 
-      if (realUAData) {
-        const cache = new Map<PropertyKey, unknown>()
+        default:
+          // check the `userAgentData` property availability in current (real) browser
+          const isAvailable = 'userAgentData' in n && typeof n.userAgentData === 'object'
 
-        return new Proxy(realUAData, {
-          get(target, prop) {
-            if (typeof prop === 'string' && prop in overrides) {
-              return overrides[prop]
-            }
-
-            const value = (target as unknown as Record<PropertyKey, unknown>)[prop]
-
-            if (typeof value === 'function') {
-              if (!cache.has(prop)) {
-                cache.set(prop, (value as (...args: ReadonlyArray<unknown>) => unknown).bind(target))
+          // store the original `userAgentData`, or craft a mock object if it does not exist
+          const agentDataObject: NavigatorUAData = isAvailable
+            ? n.userAgentData
+            : {
+                brands: [],
+                mobile: false,
+                platform: '',
+                toJSON(): UALowEntropyJSON {
+                  return { brands: [], mobile: false, platform: '' }
+                },
+                getHighEntropyValues(): Promise<UADataValues> {
+                  return Promise.resolve({ brands: [], mobile: false, platform: '' })
+                },
               }
 
-              return cache.get(prop)
-            }
+          // if the real browser does not support the `userAgentData` property, then overload it with the mock object
+          // this is necessary to avoid errors during overload the `userAgentData` properties
+          if (!isAvailable) {
+            overload(n, 'userAgentData', agentDataObject, { force: true, configurable: true })
+          }
 
-            return value
-          },
-        })
-      }
+          // to test, execute in the console: `console.log(navigator.userAgentData.brands)`
+          overload(
+            n.userAgentData,
+            'brands',
+            payload.brands.major.map(({ brand, version }) => ({ brand, version }))
+          )
 
-      return overrides as unknown as NavigatorUAData
-    }
+          // to test, execute in the console: `console.log(navigator.userAgentData.mobile)`
+          overload(n.userAgentData, 'mobile', payload.isMobile)
 
-    /** Replaces a window's `navigator` with a spoofed Proxy (leaving `Navigator.prototype` native and untouched). */
-    const spoofWindowNavigator = (win: Window | null): void => {
-      try {
-        if (!win || spoofedNavigatorWindows.has(win)) {
-          return
-        }
+          // to test, execute in the console: `console.log(navigator.userAgentData.platform)`
+          overload(n.userAgentData, 'platform', payload.platform)
 
-        const realNav = win.navigator
+          // to test, execute in the console: `console.log(navigator.userAgentData.toJSON())`
+          overload(
+            n.userAgentData,
+            'toJSON',
+            new Proxy(agentDataObject.toJSON, {
+              apply(target, self, args) {
+                return {
+                  ...Reflect.apply(target, self, args),
+                  brands: payload.brands.major.map(({ brand, version }) => ({ brand, version })),
+                  mobile: payload.isMobile,
+                  platform: payload.platform,
+                }
+              },
+            })
+          )
 
-        if (!realNav || typeof realNav !== 'object' || !('userAgent' in realNav)) {
-          return
-        }
+          // to test, execute in the console: `console.log(await navigator.userAgentData.getHighEntropyValues([...]))`
+          overload(
+            n.userAgentData,
+            'getHighEntropyValues',
+            new Proxy(agentDataObject.getHighEntropyValues, {
+              apply(target, self, args) {
+                return new Promise((resolve: (v: UADataValues) => void, reject: () => void): void => {
+                  // get the original high entropy values
+                  Reflect.apply(target, self, args)
+                    .then((values: UADataValues): void => {
+                      const data: DeepWriteable<UADataValues> = {
+                        ...values,
+                        brands: payload.brands.major.map(({ brand, version }) => ({ brand, version })),
+                        fullVersionList: payload.brands.full.map(({ brand, version }) => ({ brand, version })),
+                        mobile: payload.isMobile,
+                        model: payload.model || '',
+                        platform: payload.platform,
+                        platformVersion: payload.platformVersion,
+                        architecture: payload.architecture,
+                        bitness: payload.bitness,
+                      }
 
-        spoofedNavigatorWindows.add(win)
+                      // form factors are opt-in: only override them when configured in the settings, otherwise the
+                      // real browser value (from `...values`) passes through
+                      if (payload.formFactors.length) {
+                        ;(data as unknown as { formFactors: ReadonlyArray<string> }).formFactors = payload.formFactors
+                      }
 
-        const spoofedUAData = buildSpoofedUserAgentData(realNav)
-        const hideUserAgentData = payload.current.browser === 'firefox' || payload.current.browser === 'safari'
+                      if ('uaFullVersion' in values) {
+                        data.uaFullVersion = payload.fullVersion || payload.current.version.browser.full
+                      }
 
-        // value overrides (read via the Proxy's `get` trap; never written to the prototype or instance)
-        const overrides: Record<string, () => unknown> = {
-          userAgent: () => spoofedUserAgent,
-          appVersion: () => spoofedAppVersion,
-          vendor: () => spoofedVendor,
-          userAgentData: () => spoofedUAData,
-        }
-
-        if (spoofedPlatform) {
-          overrides.platform = () => spoofedPlatform
-        }
-
-        if (spoofedOscpu !== undefined) {
-          overrides.oscpu = () => spoofedOscpu
-        }
-
-        if (isMobileOS) {
-          overrides.maxTouchPoints = () => realNav.maxTouchPoints || 10
-        }
-
-        if (payload.current.browser === 'brave') {
-          overrides.brave = () => Object.freeze({ isBrave: (): Promise<boolean> => Promise.resolve(true) })
-        }
-
-        // properties to report as present even if the real navigator lacks them (e.g. oscpu / brave on Chromium)
-        const present = new Set<string>()
-        if (spoofedOscpu !== undefined) present.add('oscpu')
-        if (payload.current.browser === 'brave') present.add('brave')
-
-        // properties to report as absent (userAgentData when spoofing firefox / safari)
-        const hidden = new Set<string>()
-        if (hideUserAgentData) hidden.add('userAgentData')
-
-        const methodCache = new Map<PropertyKey, unknown>()
-
-        const proxy = new Proxy(realNav, {
-          get(target, prop) {
-            if (typeof prop === 'string') {
-              if (hidden.has(prop)) {
-                return undefined
-              }
-
-              const override = overrides[prop]
-
-              if (override) {
-                return override()
-              }
-            }
-
-            // read through the REAL navigator (receiver = target) so prototype getters such as serviceWorker,
-            // mediaDevices, permissions, etc. work; bind + cache methods so their identity stays stable
-            const value = (target as unknown as Record<PropertyKey, unknown>)[prop]
-
-            if (typeof value === 'function') {
-              if (!methodCache.has(prop)) {
-                methodCache.set(prop, (value as (...args: ReadonlyArray<unknown>) => unknown).bind(target))
-              }
-
-              return methodCache.get(prop)
-            }
-
-            return value
-          },
-          has(target, prop) {
-            if (typeof prop === 'string') {
-              if (hidden.has(prop)) {
-                return false
-              }
-
-              if (present.has(prop)) {
-                return true
-              }
-            }
-
-            return Reflect.has(target, prop)
-          },
-          getOwnPropertyDescriptor(target, prop) {
-            // navigator properties live on the prototype, so the instance must report no own descriptors (mirrors real)
-            return Reflect.getOwnPropertyDescriptor(target, prop)
-          },
-          getPrototypeOf(target) {
-            return Reflect.getPrototypeOf(target)
-          },
-        })
-
-        Object.defineProperty(win, 'navigator', { configurable: true, get: () => proxy })
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (_) {
-        // a window we could not spoof (e.g. cross-origin) - leave it untouched
+                      resolve(data)
+                    })
+                    .catch(reject)
+                })
+              },
+            })
+          )
       }
     }
 
@@ -371,8 +384,16 @@ import type { DeepWriteable } from '~/types'
           return
         }
 
-        // replace the iframe window's navigator with the spoofed Proxy (idempotent via the WeakSet guard inside)
-        spoofWindowNavigator(iFrame.contentWindow)
+        const [key, ds, flag] = [__UNIQUE_HEADER_KEY_NAME__.toLowerCase(), iFrame.dataset, 'true']
+        if (ds[key] === flag) {
+          return // already patched
+        }
+
+        ds[key] = flag
+
+        if (iFrame.contentWindow) {
+          patchNavigator(iFrame.contentWindow.navigator)
+        }
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_) {
         // An error occurred while patching the navigator object in the iframe
@@ -380,7 +401,7 @@ import type { DeepWriteable } from '~/types'
     }
 
     // Capture the REAL navigator values BEFORE patching. They never leave this closure - they are only used to scrub
-    // the real values back out of any response body / worker message that echoes them (see the scrubbers below).
+    // the real identity back out of any same-origin response body or worker message that echoes it (see the scrubbers).
     const realUserAgent = navigator.userAgent
     const realAppVersion = navigator.appVersion
     const realPlatform = ((): string | undefined => {
@@ -395,8 +416,8 @@ import type { DeepWriteable } from '~/types'
 
       return match ? match[1] : undefined
     })()
-    // capture the REAL high-entropy Client Hints (before patching replaces getHighEntropyValues), so a worker that
-    // echoes them back to the page (e.g. CreepJS) can be scrubbed. Resolves long before any worker message arrives.
+    // capture the REAL high-entropy Client Hints (before patching replaces getHighEntropyValues) so a worker that
+    // echoes them back to the page (e.g. CreepJS's service worker) can be scrubbed. Resolves long before any message.
     let realClientHints: Record<string, unknown> | undefined
     try {
       const realUAData = (navigator as Navigator & { userAgentData?: NavigatorUAData }).userAgentData
@@ -414,8 +435,8 @@ import type { DeepWriteable } from '~/types'
       // ignore - the real Client Hints simply will not be scrubbed from worker messages
     }
 
-    // replace the page's navigator with the spoofed Proxy
-    spoofWindowNavigator(window)
+    // patch the current navigator object
+    patchNavigator(navigator)
 
     // Patch navigator inside Web Workers too. Fingerprinters (e.g. Cloudflare Turnstile) spawn a Worker from a JS
     // blob that reports navigator.platform / userAgent / userAgentData and compare it to the page; if the page is
@@ -599,12 +620,15 @@ import type { DeepWriteable } from '~/types'
       }
     }
 
-    // Universal defense against worker-scope UA leaks (e.g. CreepJS, which reads navigator inside a service / shared /
-    // dedicated worker loaded from a script URL and posts it back to the page to reveal the real user agent + OS). We
-    // cannot patch a script-URL worker's own navigator, but every worker reports its result to the page via a `message`
-    // event, so we scrub the real values out of that message - covering ALL worker types, CSP-safe, without breaking
-    // workers. Messages that do not contain a real value are passed through untouched.
-    if (realUserAgent && realUserAgent !== spoofedUserAgent) {
+    // Worker-scope UA leak defense. A service / shared worker we cannot patch reads its OWN (real) navigator and posts
+    // the result back to the page (e.g. CreepJS's service worker via a BroadcastChannel). That real user agent / OS
+    // mismatches the spoofed page, so CreepJS flags the navigator as a lie. We scrub the real identity out of those
+    // messages so every scope matches the page. We patch ONLY the message receivers the page uses - BroadcastChannel
+    // and navigator.serviceWorker - kept native-looking, and deliberately do NOT touch `window`, `Worker` or
+    // `MessagePort` (the Cloudflare Turnstile iframe talks to its parent via `window` message events and spawns a
+    // dedicated worker, both of which must stay untouched; that worker is already re-spoofed by the Blob patch above).
+    // Gated to the TOP frame, where fingerprinters collect their worker scopes.
+    if (window === window.top && realUserAgent && realUserAgent !== spoofedUserAgent) {
       try {
         const spoofedMajor = String(payload.current.version.browser.major)
         const spoofedClientHints: Readonly<Record<string, string>> = {
@@ -626,8 +650,8 @@ import type { DeepWriteable } from '~/types'
           return out
         }
 
-        // Recursively rebuild a structured-clone message, swapping real identity values for the spoofed ones. Returns
-        // the SAME reference when nothing changed, so ordinary worker messages are passed through untouched.
+        // Recursively rebuild a structured-clone message, swapping real identity values for spoofed ones. Returns the
+        // SAME reference when nothing changed, so ordinary worker messages are passed through untouched.
         const transform = (value: unknown, key: string, depth: number, budget: { n: number }): unknown => {
           if (depth > 8 || budget.n <= 0) {
             return value
@@ -636,7 +660,6 @@ import type { DeepWriteable } from '~/types'
           budget.n--
 
           if (typeof value === 'string') {
-            // exact-match Client Hints fields first (short values like "64" are only swapped when the key matches)
             if (realClientHints && key in spoofedClientHints && value === realClientHints[key]) {
               return spoofedClientHints[key]
             }
@@ -647,7 +670,7 @@ import type { DeepWriteable } from '~/types'
 
             let out = replaceStrings(value)
 
-            // brand version strings (e.g. "Google Chrome 142.0.0.0") leak the real major - swap it for the spoofed one
+            // brand version strings (e.g. "Google Chrome 149.0.0.0") leak the real major - swap it for the spoofed one
             if (realMajor && realMajor !== spoofedMajor && /brand|version/i.test(key)) {
               out = out.replace(new RegExp(`\\b${realMajor}\\b`, 'g'), spoofedMajor)
             }
@@ -656,6 +679,22 @@ import type { DeepWriteable } from '~/types'
           }
 
           if (Array.isArray(value)) {
+            // userAgentData brand arrays leak the REAL browser brand (e.g. "Google Chrome" while spoofing Edge), which
+            // plain string scrubbing can't fix. Replace the whole brand list with the spoofed brands so the worker's
+            // userAgentData matches the page (same brands the page reports).
+            const isBrandList =
+              value.length > 0 &&
+              value.every(
+                (item) => !!item && typeof item === 'object' && typeof (item as { brand?: unknown }).brand === 'string'
+              )
+
+            if (isBrandList && (key === 'brands' || key === 'fullVersionList' || key === 'uaFullVersionList')) {
+              return (key === 'brands' ? payload.brands.major : payload.brands.full).map(({ brand, version }) => ({
+                brand,
+                version,
+              }))
+            }
+
             let changed = false
             const next = value.map((item) => {
               const result = transform(item, key, depth + 1, budget)
@@ -773,24 +812,33 @@ import type { DeepWriteable } from '~/types'
 
             const descriptor = Object.getOwnPropertyDescriptor(proto, 'onmessage')
 
-            if (descriptor && descriptor.configurable && typeof descriptor.set === 'function') {
-              const realSet = descriptor.set
-              const realGet = descriptor.get
+            if (descriptor && descriptor.configurable && typeof descriptor.set === 'function' && descriptor.get) {
+              // wrap the native get/set in Proxies of themselves so `toString` stays native; the set Proxy wraps the
+              // assigned handler so worker messages are scrubbed
+              const proxiedSet = new Proxy(descriptor.set, {
+                apply(target, thisArg, args: Array<unknown>): unknown {
+                  const handler = args[0]
+
+                  return Reflect.apply(
+                    target,
+                    thisArg,
+                    typeof handler === 'function'
+                      ? [wrapHandler(handler as (this: unknown, event: MessageEvent) => unknown), ...args.slice(1)]
+                      : args
+                  )
+                },
+              })
+              const proxiedGet = new Proxy(descriptor.get, {
+                apply(target, thisArg, args): unknown {
+                  return Reflect.apply(target, thisArg, args)
+                },
+              })
 
               Object.defineProperty(proto, 'onmessage', {
                 configurable: true,
                 enumerable: descriptor.enumerable,
-                get(this: object): unknown {
-                  return realGet ? realGet.call(this) : undefined
-                },
-                set(this: object, handler: unknown): void {
-                  realSet.call(
-                    this,
-                    typeof handler === 'function'
-                      ? wrapHandler(handler as (this: unknown, event: MessageEvent) => unknown)
-                      : handler
-                  )
-                },
+                get: proxiedGet as () => unknown,
+                set: proxiedSet as (v: unknown) => void,
               })
             }
           } catch {
@@ -798,30 +846,36 @@ import type { DeepWriteable } from '~/types'
           }
         }
 
-        // Only scrub SERVICE worker messages (CreepJS's primary worker scope). We deliberately do NOT tamper
-        // `Worker.prototype` or `MessagePort.prototype`: Cloudflare Turnstile spawns a dedicated blob Worker and is
-        // extremely sensitive to any Worker / MessageChannel tampering, and the Blob patch above already re-spoofs that
-        // worker's navigator from the inside - so scrubbing dedicated/shared worker messages is unnecessary here and
-        // only broke the Turnstile challenge. Service workers (which Turnstile does not use) are still scrubbed.
+        patchMessageTarget(typeof BroadcastChannel !== 'undefined' ? BroadcastChannel.prototype : null)
         patchMessageTarget(typeof ServiceWorkerContainer !== 'undefined' ? ServiceWorkerContainer.prototype : null)
       } catch (e) {
         console.warn('💣 RUA: an error occurred while installing the worker-message scrubber', e)
       }
     }
 
-    // spoof navigators of iframes
+    // patch iframes navigators
     {
-      // currently existing iframes
+      // currently existing
       Array(...document.getElementsByTagName('iframe')).forEach(patchNavigatorInIframe)
 
-      // Spoof an iframe's navigator synchronously on access - even for a sandboxed ("allow-same-origin" without
-      // "allow-scripts") iframe where NO script can run inside it to self-spoof (e.g. the webbrowsertools.com
-      // "[aggressive] iframe navigator.userAgent" method). The only way to reach such a frame is from the parent via
-      // `contentWindow` / `contentDocument`, so we wrap those getters - but in a Proxy of the NATIVE getter, not a
-      // plain function. `Function.prototype.toString` forwards to the native source, and the getter is otherwise
-      // indistinguishable from native, so it passes a fingerprinter's prototype-lie checks (verified against CreepJS's
-      // src/lies: known-native toString, descriptor keys = length,name, no own arguments/caller/prototype, valid
-      // proxy stack, and the advanced proxy probes that only run once Function.toString / Permissions.query lie).
+      // Aggressive detectors (e.g. webbrowsertools.com "iframe navigator.userAgent" / "iframe navigator.appVersion"
+      // methods) create a fresh iframe and read `iframe.contentWindow.navigator` (or `contentDocument.defaultView`)
+      // directly - sometimes via innerHTML / insertAdjacentHTML, which bypass appendChild/insertBefore/append/prepend.
+      // Patch the prototype accessors so the child frame's navigator is spoofed on EVERY access path, closing the
+      // iframe leak that ua-parser-js / platform.js would otherwise read the real user agent from.
+      const patchedWindows = new WeakSet<Window>()
+      const patchWindowNavigator = (win: Window | null): void => {
+        try {
+          if (win && typeof win === 'object' && !patchedWindows.has(win) && win.navigator) {
+            patchedWindows.add(win)
+            patchNavigator(win.navigator)
+          }
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch (_) {
+          // cross-origin frames are inaccessible from here - nothing leaks from them, so nothing to patch
+        }
+      }
+
       const patchIframeAccessor = (prop: 'contentWindow' | 'contentDocument'): void => {
         try {
           const descriptor = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, prop)
@@ -830,40 +884,58 @@ import type { DeepWriteable } from '~/types'
             return
           }
 
-          const proxiedGet = new Proxy(descriptor.get, {
-            apply(target, thisArg, args): unknown {
-              const result = Reflect.apply(target, thisArg, args)
+          const nativeGet = descriptor.get
 
-              try {
-                if (prop === 'contentWindow') {
-                  spoofWindowNavigator(result as Window | null)
-                } else {
-                  spoofWindowNavigator((result as Document | null)?.defaultView ?? null)
-                }
-              } catch {
-                /* cross-origin frame - inaccessible, nothing to spoof */
+          Object.defineProperty(HTMLIFrameElement.prototype, prop, {
+            configurable: true,
+            enumerable: descriptor.enumerable,
+            get(this: HTMLIFrameElement): Window | Document | null {
+              const result = nativeGet.call(this) as Window | Document | null
+
+              if (prop === 'contentWindow') {
+                patchWindowNavigator(result as Window | null)
+              } else {
+                patchWindowNavigator((result as Document | null)?.defaultView ?? null)
               }
 
               return result
             },
           })
-
-          Object.defineProperty(HTMLIFrameElement.prototype, prop, {
-            configurable: true,
-            enumerable: descriptor.enumerable,
-            get: proxiedGet as () => Window | Document | null,
-            set: descriptor.set,
-          })
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (_) {
-          // could not redefine the accessor - the MutationObserver below still patches added iframes
+          // could not redefine the accessor - fall back to the DOM-method proxies / observer below
         }
       }
 
       patchIframeAccessor('contentWindow')
       patchIframeAccessor('contentDocument')
 
-      // watch for dynamically created iframes (a passive observer is not detectable as a prototype lie)
+      const overloadOpts: Parameters<typeof overload>[3] = { configurable: true, force: true, writable: true }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const proxyInvoke = <T extends (...args: readonly any[]) => unknown>(what: T): T =>
+        new Proxy(what, {
+          apply(target, thisArg, args) {
+            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Reflect/apply
+            const result = Reflect.apply(target, thisArg, args)
+
+            // patch the navigator object in the appended node
+            if (Array.isArray(args)) {
+              args.forEach((node) => patchNavigatorInIframe(node))
+            }
+
+            return result
+          },
+        })
+
+      // patch the methods that can add new nodes to the DOM
+      // TY @Certseeds for the idea (https://github.com/tarampampam/random-user-agent/pull/173)
+      overload(Node.prototype, 'appendChild', proxyInvoke(Node.prototype.appendChild), overloadOpts)
+      overload(Node.prototype, 'insertBefore', proxyInvoke(Node.prototype.insertBefore), overloadOpts)
+      overload(Element.prototype, 'append', proxyInvoke(Element.prototype.append), overloadOpts)
+      overload(Element.prototype, 'prepend', proxyInvoke(Element.prototype.prepend), overloadOpts)
+
+      // watch for the new dynamically created iframes
       new MutationObserver((mutations): void => {
         mutations.forEach((mutation): void => mutation.addedNodes.forEach(patchNavigatorInIframe))
       }).observe(document, { childList: true, subtree: true })
